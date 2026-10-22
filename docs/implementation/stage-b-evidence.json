@@ -1,0 +1,858 @@
+{
+  "stage": "B1",
+  "status": "verified",
+  "independent_review": "acnh_stagea_review: final stable B1 review passed",
+  "tests": {
+    "unit_tests_passed": 21,
+    "loader_probe": {
+      "modules": [
+        "main",
+        "subsdk0",
+        "sdk"
+      ],
+      "threads": 4,
+      "cross_module_calls": 4000
+    }
+  },
+  "first_boot": {
+    "status": "stopped_on_missing_service",
+    "sdk_initialized": true,
+    "module_constructors_completed": true,
+    "nnMain_entered": true,
+    "metal_device": "Apple M5 Max",
+    "nvn_swapchain": {
+      "width": 1920,
+      "height": 1080,
+      "buffers": 3
+    },
+    "first_game_frame_verified": false,
+    "blocker": "nifm:u IPC service not implemented"
+  },
+  "artifacts": {
+    "work/acnh/3.0.0/verification.json": {
+      "sha256": "ab0f89cf949f0b73077fef863de95746f0e01d3ffad8ffee5d16f099030d3b38"
+    },
+    "work/acnh/3.0.0/analysis/runtime-entry-ctor.json": {
+      "sha256": "e9fad74b5693708ea05eaea6747c26db3d5c3d0a2b13435d655a2102a788005c"
+    },
+    "work/acnh/3.0.0/verification/runtime-entry-ctor.json": {
+      "sha256": "71e1983aca407d54f4760c0440e5352e499cbb288e910a65c8a96755295b6244"
+    },
+    "work/acnh/3.0.0/boot-first.log": {
+      "sha256": "b6bdbe39935a1f286a100fc4dbae851158d55017103278ada3b354c189c98dfd"
+    },
+    "work/acnh/3.0.0/boot-second.log": {
+      "sha256": "80854d01f4d9ec2b83add12686de8bab891462bc9e296265ec3ffe80d3757aa7"
+    },
+    "work/acnh/3.0.0/boot-third.log": {
+      "sha256": "5825e58fc696c9a660506eb427534448a2e68452f2caba8041c33e92d8350d4b"
+    },
+    "work/acnh/3.0.0/boot-fourth.log": {
+      "sha256": "040a989b20358da4c035bad81d85d1f77018da474cb4a35c46c13595d95523ee"
+    },
+    "work/acnh/3.0.0/boot-fifth.log": {
+      "sha256": "fc3fa8dd95c0296cbda64cf4f41fdfd5578fe27b74529fff1ccc125a802af965"
+    },
+    "work/acnh/3.0.0/boot-sixth.log": {
+      "sha256": "c4e2b701d7fd633ce5e96c1f4945b00f68bdba176ebbc6f3fbb9700c9795123e"
+    },
+    "work/acnh/3.0.0/boot-seventh.log": {
+      "sha256": "28e0e6cca4161a422bfb3650a1d7c68899c056aeb57e14048550a4bc33c8f42c"
+    },
+    "work/acnh/3.0.0/boot-eighth.log": {
+      "sha256": "9c89d002415887f6ac98fc7977d5c7ed34ba17e859ff508dfa17179c8d878bb2"
+    },
+    "work/acnh/3.0.0/boot-ninth.log": {
+      "sha256": "89834e3bae98af1d1f9bd38bc61a0c2c1f45743ec394eb38bd82b34c32c4efc0"
+    },
+    "work/acnh/3.0.0/boot-tenth.log": {
+      "sha256": "4a322fbda3f8b7c591e34063249a768556bccdb6c7713eca475cc80a07e98b3a"
+    },
+    "work/acnh/3.0.0/boot-eleventh.log": {
+      "sha256": "48e61f7b1d839e4139316cc3355c04f81f0d77b93f5454182f1f07e2ac299f93"
+    },
+    "work/acnh/3.0.0/boot-twelfth.log": {
+      "sha256": "648863655780754ba5dea28b8561acf16d416f2208a2ed2f14bc1b446bef7722"
+    }
+  },
+  "not_verified": [
+    "first game frame",
+    "gameplay",
+    "save and reload",
+    "iPhone"
+  ],
+  "second_boot": {
+    "status": "stopped_on_unsupported_domain_conversion",
+    "service_opened": "nifm:u",
+    "ipc_control_sequence": [
+      3,
+      0
+    ],
+    "observed_present_clock_hz": 60,
+    "guest_present_interval": 2,
+    "host_schedule_period_ms": 33.333,
+    "first_game_frame_verified": false
+  },
+  "third_boot": {
+    "status": "stopped_on_missing_service",
+    "service_opened": "nifm:u",
+    "ipc_control_sequence": [
+      3,
+      0
+    ],
+    "domain_general_service_created": true,
+    "blocker": "hid IPC service not implemented",
+    "first_game_frame_verified": false,
+    "review_status": "pending legal descriptor-alignment correction"
+  },
+  "fourth_boot": {
+    "status": "stopped_on_guest_sdk_fault",
+    "touch_initialization_bypassed_sdk_shared_memory_path": true,
+    "signal": "SIGSEGV",
+    "fault_address": 0,
+    "sdk_offset": "0x408060",
+    "identified_function": "nn::oe::EnterExitRequestHandlingSection",
+    "cause_observed": "GetSelfController returned null before vtable access",
+    "first_game_frame_verified": false,
+    "tests_passed": 24,
+    "touch_read_functions_observed": false
+  },
+  "fifth_boot": {
+    "status": "stopped_on_missing_romfs_directory_api",
+    "exit_section_initialization_passed": true,
+    "local_account_initialized": true,
+    "audio_initialized": {
+      "host": "CoreAudio",
+      "sample_rate": 48000,
+      "channels": 2,
+      "renderer_protocol": "REV15"
+    },
+    "audible_output_verified": false,
+    "blocker": "OpenDirectory content:/Rumble: RomFS directory listing not implemented",
+    "tests_passed": 25,
+    "first_game_frame_verified": false,
+    "normal_exit_verified": false
+  },
+  "controlled_runtime_review": {
+    "ipc": "passed for NIFM no-buffer domain commands only; input objects, output pointer-size tables and CopyFromDomain unsupported",
+    "touch": "code and boundary tests passed; only initialization observed in game",
+    "exit": "review passed for notify-and-retain-window scope; normal exit not implemented",
+    "romfs_directory": "independent review passed for verified ACNH image; production parser synthetic and real-image probes passed; actual game Open/Read observed",
+    "shared_fonts": "passed for ACNH en-US explicit compatibility order; real fonts decoded and loaded in seventh boot; GetSharedFont not yet observed",
+    "friend_service": "review passed for observed no-argument domain cmd0 only; child commands explicitly unsupported",
+    "bcat_service": "review passed for observed cmd0 CreateBcatService only; no downloaded cache or sync success claimed",
+    "settings": "review passed for GetRegionCode only; production int32 USA1 response and actual SDK request observed"
+  },
+  "sixth_boot": {
+    "status": "stopped_on_missing_pl_service",
+    "romfs_directories": 243,
+    "romfs_files": 103396,
+    "rumble_direct_files": 33,
+    "actual_game_directory_reads_observed": true,
+    "blocker": "pl:u service not implemented",
+    "tests_run": 27,
+    "tests_passed": 26,
+    "tests_skipped": 1,
+    "real_directory_probe_passed": true,
+    "first_game_frame_verified": false
+  },
+  "seventh_boot": {
+    "status": "stopped_on_missing_friend_service",
+    "shared_fonts_loaded": 6,
+    "shared_font_bytes": 17381312,
+    "font_request_path_observed": true,
+    "font_list_path_observed": false,
+    "blocker": "friend:u service not implemented",
+    "tests_run": 28,
+    "tests_passed": 27,
+    "tests_skipped": 1,
+    "font_review": "passed for ACNH en-US compatibility scope",
+    "first_game_frame_verified": false
+  },
+  "iphone_target": {
+    "model": "iPhone 17 Pro Max",
+    "os": "iOS 27.2",
+    "developer_membership": "user confirmed",
+    "device_connection_and_signing_verified": false,
+    "local_preflight": {
+      "iphoneos_sdk": "27.0",
+      "target_previously_known_to_xcode": true,
+      "target_reported_os": "27.2",
+      "current_tunnel_state": "disconnected",
+      "app_build_or_install_attempted": false
+    }
+  },
+  "eighth_boot": {
+    "status": "stopped_on_diagnostic_friend_command",
+    "service": "friend:u",
+    "command": 0,
+    "type": 6,
+    "domain": true,
+    "object_id": 1,
+    "data_bytes": 0,
+    "buffers": 0,
+    "handles": 0,
+    "tests_run": 29,
+    "tests_passed": 28,
+    "tests_skipped": 1,
+    "first_game_frame_verified": false
+  },
+  "ninth_boot": {
+    "status": "stopped_on_missing_bcat_service",
+    "friend_service_object_created": true,
+    "observed_friend_factory_commands": [
+      0
+    ],
+    "friend_child_command_observed": false,
+    "blocker": "bcat:u service not implemented",
+    "tests_run": 31,
+    "tests_passed": 30,
+    "tests_skipped": 1,
+    "first_game_frame_verified": false
+  },
+  "tenth_boot": {
+    "status": "stopped_on_diagnostic_bcat_command",
+    "service": "bcat:u",
+    "command": 0,
+    "type": 6,
+    "domain": true,
+    "object_id": 1,
+    "data_bytes": 8,
+    "buffers": 0,
+    "send_pid": true,
+    "copy_handles": 0,
+    "move_handles": 0,
+    "tests_run": 33,
+    "tests_passed": 32,
+    "tests_skipped": 1,
+    "first_game_frame_verified": false
+  },
+  "eleventh_boot": {
+    "status": "stopped_on_missing_settings_service",
+    "bcat_service_object_created": true,
+    "bcat_child_command_observed": false,
+    "blocker": "set service not implemented, caller nn::oe::GetRegionCode",
+    "tests_run": 36,
+    "tests_passed": 35,
+    "tests_skipped": 1,
+    "first_game_frame_verified": false
+  },
+  "twelfth_boot": {
+    "status": "stopped_on_original_sdk_break",
+    "settings_region_command_observed": 4,
+    "settings_region_type": 6,
+    "settings_region_domain": false,
+    "settings_region_frame_data_bytes": 8,
+    "break_reason": "0x0",
+    "break_result": "0x74",
+    "caller_sdk_offset": "0x43ed20",
+    "caller_main_offset": "0x9817d8",
+    "tests_run": 42,
+    "tests_passed": 41,
+    "tests_skipped": 1,
+    "first_game_frame_verified": false
+  },
+  "thirteenth_boot": {
+    "status": "stopped_on_missing_service",
+    "blocker": "ngc:u",
+    "prior_time_initialization_abort_passed": true,
+    "log": "work/acnh/3.0.0/boot-thirteenth.log",
+    "log_sha256": "ee4af7967f7e4c84b6a089619cc500d72f3832e76322867ba79fd53aabb291c2",
+    "first_game_frame_verified": false,
+    "tests": {
+      "run": 54,
+      "passed": 53,
+      "skipped": 1
+    },
+    "independent_review": "clock/timezone and explicit inverse-conversion guard passed; 12 targeted tests passed"
+  },
+  "fourteenth_boot": {
+    "status": "stopped_on_missing_service",
+    "blocker": "fsp-srv",
+    "ngc_commands_observed": false,
+    "nvn_present_calls_observed": 2,
+    "runtime_shader_translation_observed": [
+      "vs",
+      "ps"
+    ],
+    "captured_frames_visual_result": "both black; no recognizable game frame verified",
+    "first_game_frame_verified": false,
+    "tests": {
+      "run": 56,
+      "passed": 55,
+      "skipped": 1
+    },
+    "independent_review": "ngc diagnostic-only service passed",
+    "evidence": {
+      "work/acnh/3.0.0/boot-fourteenth.log": {
+        "sha256": "103e7fa19cd3a92e2108d3e207ecfa80fd4d126c0d2c693516aea116f40d8cb9"
+      },
+      "work/acnh/3.0.0/boot-fourteenth-capture.log": {
+        "sha256": "e4f71f952d63b09f423c7d4b3c9ccd563a8eebafe678114945a5932b64719773"
+      },
+      "work/acnh/3.0.0/frame-fourteenth-1.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-fourteenth-2.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      }
+    }
+  },
+  "fifteenth_boot": {
+    "status": "crashed_in_sdk",
+    "device_save_mounted": true,
+    "device_save_payload_files_observed": 0,
+    "fault_address": "0x0",
+    "sdk_pc_offset": "0x1b01b4",
+    "sdk_lr_offset": "0x1b01a4",
+    "frames_at_least": 31,
+    "captured_frames": [
+      1,
+      2,
+      10,
+      30
+    ],
+    "visual_result": "all captured frames visually black",
+    "first_game_frame_verified": false,
+    "tests": {
+      "run": 64,
+      "passed": 63,
+      "skipped": 1
+    },
+    "independent_review": "device-save narrow scope passed after ancestor-path correction; single-process controlled profile only",
+    "evidence": {
+      "work/acnh/3.0.0/boot-fifteenth.log": {
+        "sha256": "359f6cb5206732795396ee4650d6e788c8fece180384dc0b9c9f998ef5f3869c"
+      },
+      "work/acnh/3.0.0/frame-fifteenth-1.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-fifteenth-10.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-fifteenth-2.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-fifteenth-30.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      }
+    }
+  },
+  "sixteenth_boot": {
+    "status": "stopped_on_missing_service",
+    "blocker": "olsc:u",
+    "prior_account_enumeration_crash_passed": true,
+    "frames_at_least": 31,
+    "captured_frames": [
+      1,
+      2,
+      10,
+      30
+    ],
+    "raster_analysis": "CoreGraphics decoded RGB min=max=0 and nonblack_pixels=0 for all four frames",
+    "first_game_frame_verified": false,
+    "tests": {
+      "run": 66,
+      "passed": 65,
+      "skipped": 1
+    },
+    "independent_review": "ACNH persistent local ListAllUsers passed; max<=0 count semantics and BOTW isolation verified",
+    "evidence": {
+      "work/acnh/3.0.0/boot-sixteenth.log": {
+        "sha256": "f575b8a069d96a11a7c14ec088716459fd1de139cfeb1671f36e8cc90b7e5cc8"
+      },
+      "work/acnh/3.0.0/frame-sixteenth-stats.jsonl": {
+        "sha256": "7fd0a06784225e27952405d0be4652cc3edc87121c411554065b556d32a8c14a"
+      },
+      "work/acnh/3.0.0/frame-sixteenth-1.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-sixteenth-10.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-sixteenth-2.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-sixteenth-30.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      }
+    }
+  },
+  "seventeenth_boot": {
+    "status": "diagnostic_stop",
+    "service": "olsc:u",
+    "observed_command": {
+      "cmd": 0,
+      "type": 6,
+      "domain": true,
+      "object": 1,
+      "token": 0,
+      "data_bytes": 8,
+      "has_pid": true,
+      "buffers": 0,
+      "copy_handles": 0,
+      "move_handles": 0
+    },
+    "first_game_frame_verified": false,
+    "tests": {
+      "run": 68,
+      "passed": 67,
+      "skipped": 1
+    },
+    "independent_review": "OLSC shape-only diagnostic passed",
+    "evidence": {
+      "work/acnh/3.0.0/boot-seventeenth.log": {
+        "sha256": "dd9959d15adfcae3cc92002d06cc6bb682983ba8161e4e9212f32e93ff2c527e"
+      },
+      "work/acnh/3.0.0/frame-seventeenth-stats.jsonl": {
+        "sha256": "f85eb3be0c8d2dc524c0a7eba5d871a71c1d9270ee042bf701f620bb5f27c2a8"
+      }
+    }
+  },
+  "eighteenth_boot": {
+    "status": "gpu_protective_stop",
+    "olsc_commands_passed": [
+      0,
+      13
+    ],
+    "stop": "TOTK_GPU_MIDCLEAR guard before mid-pass/masked/scissored depth-stencil clear",
+    "first_game_frame_verified": false,
+    "captured_frames": [
+      1,
+      2,
+      10,
+      30,
+      60
+    ],
+    "all_captures_rgb_zero": true,
+    "tests": {
+      "run": 70,
+      "passed": 69,
+      "skipped": 1
+    },
+    "independent_review": "OLSC local offline initialization and setting query passed",
+    "evidence": {
+      "work/acnh/3.0.0/boot-eighteenth.log": {
+        "sha256": "419660183236c318602580c202d7b53e4e28ed225e30f8846f37e394dc98916c"
+      },
+      "work/acnh/3.0.0/frame-eighteenth-stats.jsonl": {
+        "sha256": "ae7427fb31ea2f08018839b66392a16661dcb5d2f9403accb1d2ba5f39aa3464"
+      },
+      "work/acnh/tests-olsc-offline.log": {
+        "sha256": "55bfd4306d4a2758e56c21c8f134cc517111e0a61c8a37cbc282b768576f9af0"
+      },
+      "work/acnh/3.0.0/frame-eighteenth-2.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-eighteenth-30.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-eighteenth-1.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-eighteenth-60.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      },
+      "work/acnh/3.0.0/frame-eighteenth-10.png": {
+        "sha256": "36cad8a92368458aa94c5e6c3f09d31290fe0062412b94eb22cd2e98801124b7"
+      }
+    }
+  },
+  "nineteenth_boot": {
+    "status": "gpu_protective_stop_with_tuple",
+    "first_game_frame_verified": false,
+    "clear": {
+      "frame": 105,
+      "prior_pass_count": 273,
+      "depth": 1,
+      "depth_mask": 1,
+      "stencil": 0,
+      "stencil_mask": 0,
+      "nvn_format": "0x34",
+      "metal_format_mapping": "Depth32Float",
+      "nvn_samples": 0,
+      "size": [
+        768,
+        768
+      ],
+      "scissor": [
+        0,
+        0,
+        512,
+        512
+      ],
+      "active_encoder": false,
+      "view": {
+        "present": true,
+        "format_override": false,
+        "level": 0,
+        "layer": 0
+      }
+    },
+    "gpu_baseline_probes": {
+      "color_checks": 9216,
+      "depth_stencil_checks": 6144,
+      "negative_controls_detected": 2,
+      "draw_after_clear_verified": false
+    },
+    "evidence": {
+      "work/acnh/3.0.0/boot-nineteenth.log": {
+        "sha256": "0b321cfd989a7a7258b166e3334cdc1393a0b646829053c8583f963f6d3f5a87"
+      },
+      "work/acnh/3.0.0/frame-nineteenth-stats.jsonl": {
+        "sha256": "c51d9c56c2f3b507f44b5d1c96f0dc8215da1e71f074d1abab6d2b0451cfa5ed"
+      },
+      "work/acnh/3.0.0/analysis/gpu-clear-probes.json": {
+        "sha256": "732092e88195d4d0ab4731c64eba7b2e789d878ef3fa6f2bd5dbaf02f2a9da95"
+      }
+    }
+  },
+  "twentieth_boot": {
+    "status": "unsupported_nifm_command",
+    "service": "nifm:u",
+    "observed_command": {
+      "cmd": 4,
+      "type": 6,
+      "data_bytes": 4,
+      "buffers": 0
+    },
+    "validated_gpu_path_temporarily_enabled": "TOTK_GPU_MIDCLEAR=1 only for this diagnostic run; default unchanged",
+    "prior_gpu_clear_guard_passed": true,
+    "first_game_frame_verified": false,
+    "all_captures_rgb_zero": true,
+    "gpu_probes": {
+      "color_checks": 9216,
+      "depth_stencil_and_draw_restore_checks": 2955264,
+      "negative_controls_detected": 3,
+      "independent_review": "passed including evidence hashes"
+    },
+    "evidence": {
+      "work/acnh/3.0.0/boot-twentieth.log": {
+        "sha256": "62b3add9c96bfe85b841e17edf4edec8706d33e55c32ba96493999447844809b"
+      },
+      "work/acnh/3.0.0/frame-twentieth-stats.jsonl": {
+        "sha256": "06f4104b115e3d556a046d4edcc6d3a0db3030e73a5e6fa551afd5694f863f0e"
+      },
+      "work/acnh/3.0.0/analysis/gpu-clear-probes-v3.json": {
+        "sha256": "e5773252bc7b6d6d9d6008d0bc2cd40a50a569c46575a91e494f7ea43b7466b5"
+      }
+    }
+  },
+  "twenty_first_boot": {
+    "status": "unsupported_nifm_request_child_command",
+    "general_create_request_passed": true,
+    "service": "nifm:IRequest",
+    "observed_command": {
+      "cmd": 2,
+      "type": 6,
+      "domain": true,
+      "object": 3,
+      "token": 0,
+      "data_bytes": 0,
+      "has_pid": false,
+      "buffers": 0,
+      "copy_handles": 0,
+      "move_handles": 0
+    },
+    "tests": {
+      "run": 71,
+      "passed": 70,
+      "skipped": 1
+    },
+    "independent_review": "NIFM factory corrected to actual static-root Domain -> General child -> IRequest child sequence; passed",
+    "first_game_frame_verified": false,
+    "captured_frames": [
+      1,
+      2,
+      10,
+      30,
+      60,
+      100,
+      105,
+      106
+    ],
+    "all_captures_rgb_zero": true,
+    "evidence": {
+      "work/acnh/3.0.0/boot-twenty-first.log": {
+        "sha256": "259cc144b0d154c16dfb305e13fd05a39e7ec218d3c1dd46c6c8e53387f3765d"
+      },
+      "work/acnh/3.0.0/frame-twenty-first-stats.jsonl": {
+        "sha256": "f960581777f7808446a53bec256c6ee0d2eb1b84fbc87dc2830be822f09c1ffa"
+      },
+      "work/acnh/tests-nifm-factory.log": {
+        "sha256": "5dde1ef0a9aca6409fe6e11ab46410397b392a85863fa10146bf9b8e6c2a08e4"
+      }
+    }
+  },
+  "twenty_second_boot": {
+    "status": "unsupported_nifm_request_configuration",
+    "get_system_event_readable_handles_passed": true,
+    "service": "nifm:IRequest",
+    "observed_command": {
+      "cmd": 11,
+      "type": 6,
+      "domain": true,
+      "object": 3,
+      "token": 0,
+      "data_bytes": 1,
+      "has_pid": false,
+      "buffers": 0,
+      "copy_handles": 0,
+      "move_handles": 0
+    },
+    "tests": {
+      "run": 72,
+      "passed": 71,
+      "skipped": 1,
+      "real_event_lifecycle_cycles": 5000
+    },
+    "independent_review": "event ownership and lock order passed; copy-handle response parser false-positive corrected and synthetic nonzero Result regression passed",
+    "first_game_frame_verified": false,
+    "captured_frames": [
+      1,
+      2,
+      10,
+      30,
+      60,
+      100
+    ],
+    "all_captures_rgb_zero": true,
+    "evidence": {
+      "work/acnh/3.0.0/boot-twenty-second.log": {
+        "sha256": "3d06208bbd681db934252e2e7fd38bc125b283b31fd6570c1ec40c92c2c94c67"
+      },
+      "work/acnh/3.0.0/frame-twenty-second-stats.jsonl": {
+        "sha256": "945fcb0dd10e605974c222f1fb40e3492ae02f5bc31df61b53b5cec77cd34b7e"
+      },
+      "work/acnh/tests-nifm-events-final.log": {
+        "sha256": "28ea3c7b5360536078159d4038f188559644daadb7a6551c313c08e060f600f7"
+      }
+    }
+  },
+  "twenty_third_boot": {
+    "status": "unsupported_nifm_request_submit",
+    "set_connection_confirmation_option_passed": true,
+    "observed_option": 4,
+    "service": "nifm:IRequest",
+    "observed_command": {
+      "cmd": 4,
+      "type": 6,
+      "domain": true,
+      "object": 3,
+      "token": 0,
+      "data_bytes": 0,
+      "has_pid": false,
+      "buffers": 0,
+      "copy_handles": 0,
+      "move_handles": 0
+    },
+    "tests": {
+      "run": 72,
+      "passed": 71,
+      "skipped": 1
+    },
+    "independent_review": "passed; negative controls now require actual runtime_fail, not only rejection log",
+    "first_game_frame_verified": false,
+    "captured_frames": [
+      1,
+      2,
+      10,
+      30,
+      60,
+      100,
+      105,
+      106
+    ],
+    "all_captures_rgb_zero": true,
+    "evidence": {
+      "work/acnh/3.0.0/boot-twenty-third.log": {
+        "sha256": "c0a9b2acbdb763c8afc110fb32ac185fa0fe2ecbe79fa27a4b5af4a848f6271f"
+      },
+      "work/acnh/3.0.0/frame-twenty-third-stats.jsonl": {
+        "sha256": "9a6a14f4106e77b14fe1e890a9b109dfb020078e9dd7704634f596b74c36caec"
+      },
+      "work/acnh/tests-nifm-option-final.log": {
+        "sha256": "4a6209d83acf36e49f929d356de6ece51becb9276a8a03387a190292fd5c8c3b"
+      }
+    }
+  },
+  "twenty_fourth_boot": {
+    "status": "unsupported_fsp_service_open_after_offline_network_failure",
+    "nifm_submit_and_state_result_queries_passed": true,
+    "offline_request_state": 1,
+    "offline_result": "0x8986e",
+    "network_accepted": false,
+    "service": "fsp-srv",
+    "sdk_caller": "0x265380",
+    "main_caller": "0x3b0a0e4",
+    "tests": {
+      "run": 72,
+      "passed": 71,
+      "skipped": 1
+    },
+    "independent_review": "offline lifecycle strict shapes, Result framing, first-event-only signal, owner isolation and negative controls passed",
+    "first_game_frame_verified": false,
+    "captured_frames": [
+      1,
+      2,
+      10,
+      30,
+      60,
+      100,
+      105,
+      106,
+      110,
+      120
+    ],
+    "all_captures_rgb_zero": true,
+    "evidence": {
+      "work/acnh/3.0.0/boot-twenty-fourth.log": {
+        "sha256": "84a8ca608666b050b87675cc2f8754f6152d5169077d30ba971ff8a78a0f88a0"
+      },
+      "work/acnh/3.0.0/frame-twenty-fourth-stats.jsonl": {
+        "sha256": "6f98fcd49f4294dc4c76d6a9e8ca1edf02e7ea4217f5fcc87dfef613149aded2"
+      },
+      "work/acnh/tests-nifm-submit.log": {
+        "sha256": "bf84f6c8c2d9af5582ebf690f473bc180cf318dede17a2c3054249d3c6a8d2a0"
+      }
+    }
+  },
+  "twenty_fifth_boot": {
+    "status": "sdk_null_read_sigsegv_after_missing_delivery_cache",
+    "bcat_mount_absence_policy_passed": true,
+    "bcat_mount_result": "0x47a",
+    "signal": 11,
+    "fault_address": "0x0",
+    "sdk_pc": "0x408894",
+    "main_caller": "0x721720",
+    "tests": {
+      "run": 73,
+      "passed": 72,
+      "skipped": 1
+    },
+    "independent_review": "BCAT exact leaf ABI and production GAME_ACNH-only override routing passed; factory protection and non-ACNH isolation preserved",
+    "first_game_frame_verified": false,
+    "captured_frames": [
+      1,
+      2,
+      10,
+      30,
+      60,
+      100,
+      105,
+      106,
+      110,
+      120,
+      150
+    ],
+    "all_captures_rgb_zero": true,
+    "evidence": {
+      "work/acnh/3.0.0/boot-twenty-fifth.log": {
+        "sha256": "44c03c7ae80314cfb5f491f0c8e47e40002864799f24f166d5f868b610a91881"
+      },
+      "work/acnh/3.0.0/frame-twenty-fifth-stats.jsonl": {
+        "sha256": "a86d5a97a97cb9480cf9e5fa744236ed25577c64bbbdf9dc280dbdfe973f14c9"
+      },
+      "work/acnh/tests-bcat-missing-cache.log": {
+        "sha256": "ad9296f66f61d3f0dedf5e40cf9b0f733b47b21eb59952dc6b88356192c2f71f"
+      }
+    }
+  },
+  "twenty_sixth_boot": {
+    "status": "sdk_break_hid_710_after_pseudo_device_id",
+    "pseudo_device_id_loaded": true,
+    "signal": "SDK Break",
+    "result": "0x58cca",
+    "module": 202,
+    "description": 710,
+    "function": "nn::hid::GetNpadJoyAssignment",
+    "cause": "detail lookup returned null internal state; public wrapper aborts",
+    "tests": {
+      "run": 79,
+      "passed": 78,
+      "skipped": 1
+    },
+    "first_game_frame_verified": false,
+    "all_captures_rgb_zero": true,
+    "evidence": {
+      "work/acnh/3.0.0/boot-twenty-sixth.log": {
+        "sha256": "8a53957da51e796182ae3959ca4befc1d1ce13db395bc93701f8daacb524bc86"
+      },
+      "work/acnh/3.0.0/frame-twenty-sixth-stats.jsonl": {
+        "sha256": "e06b66982348fca7c3b6e9def0b2ea56a03497ff31dea57e4c5ec5bf424a03e5"
+      },
+      "work/acnh/tests-pseudo-device.log": {
+        "sha256": "600dcc76d9b82646d24b5b57300120c03944c2a43c51c10c9788cf17747c399f"
+      }
+    }
+  },
+  "twenty_seventh_boot": {
+    "status": "steady_render_loop_stopped_by_diagnostic_timeout",
+    "pseudo_device_id_loaded": true,
+    "joy_assignment": "id 0x0 mode dual",
+    "audio_nonzero_samples_observed": true,
+    "reached_frame_at_timeout": 4800,
+    "timeout_seconds": 180,
+    "guest_exit": false,
+    "tests": {
+      "run": 80,
+      "passed": 79,
+      "skipped": 1
+    },
+    "first_game_frame_verified": false,
+    "captured_frames": [
+      1,
+      2,
+      10,
+      30,
+      60,
+      100,
+      105,
+      106,
+      110,
+      120,
+      150,
+      180,
+      240,
+      300,
+      450,
+      600
+    ],
+    "all_captures_rgb_zero": true,
+    "later_frames_not_captured": true,
+    "evidence": {
+      "work/acnh/3.0.0/boot-twenty-seventh.log": {
+        "sha256": "25385f2701a00fc168cad59f12b9ef5e2c5e222f0ef4328fe8e970b86d407c2a"
+      },
+      "work/acnh/3.0.0/frame-twenty-seventh-stats.jsonl": {
+        "sha256": "88ac2c3aaf57b8c849d96a4d3283f5f1e3cc6e471670a1e4edc89a35aba1d5da"
+      },
+      "work/acnh/tests-joy-assignment.log": {
+        "sha256": "919c6e2621c8f8536c0bf18a44b1edb4b36376d81587ae2436bbd24ac0992ae8"
+      }
+    }
+  },
+  "presented_frame_600": {
+    "status": "recognizable_swapchain_image_then_diagnostic_timeout",
+    "gpu_submit": "TOTK_GPU_ALLOW_SUBMIT=1 TOTK_GPU_MIDCLEAR=1; Makefile boot default unchanged",
+    "cause": "swapchain copy clip z is -1; NVN default near plane is -w; Metal clipped it against 0..w",
+    "fix": "clamp clip z on swapchain passes while the depth mode stays NEAR_IS_MINUS_W",
+    "frame": 600,
+    "image": "airport counter, Timmy and Tommy, Nook Inc. sign, opening dialogue",
+    "visually_checked": true,
+    "timeout_seconds": 120,
+    "guest_exit": false,
+    "playability_verified": false,
+    "save_verified": false,
+    "iphone_verified": false,
+    "b2_checkbox": "unchecked; unimplemented SVC/IPC/NVN inventory and independent review still open",
+    "evidence": {
+      "work/acnh/3.0.0/boot-clipz.log": {
+        "sha256": "bcf808ff5cc3a872025dae6baad452cbdeb49987b37b396fcca49004a95df529"
+      },
+      "work/acnh/3.0.0/frame-clipz-600.png": {
+        "sha256": "55d95e6927313f93104fac1a0aa0ab1fb82afe600b79dbbd1ad619371ee04b5b"
+      }
+    }
+  }
+}

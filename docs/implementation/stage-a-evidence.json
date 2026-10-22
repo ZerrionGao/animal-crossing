@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-21",
+  "scope": "阶段A：输入、资源、改写与指令片段验证；不代表游戏启动或可玩",
+  "upstream": {
+    "name": "MacNativeGames",
+    "commit": "dfa7ec426f8b37798073a108ede1504c827d8af0"
+  },
+  "version": "3.0.0",
+  "romfs": {
+    "status": "pass",
+    "romfs_size": 10422884952,
+    "romfs_sha256": "e402e20490545b3e2f7931480c12a402a76926400203527dd4ca54e7cd1fd0f1",
+    "integrity": "BKTR merge; all six IVFC levels verified"
+  },
+  "romfs_files": 103396,
+  "rewrite": {
+    "source_exefs": "/Users/zerrion.gao/Downloads/developer/git/animal-crossing/work/acnh/input/update/exefs",
+    "manifest_sha256": "c69676612ec9cbbb6b4a7f6273ed5cf4e522bd2a138f88ff2c85d3d30bc5d9e0",
+    "python_optimization": 0,
+    "cuts": 0,
+    "observations": 0,
+    "tools": {
+      "games/acnh/scripts/rewrite.py": "234a69a2b2830a2a303b81a83725c6902c1e91ddb03ec035ed556806901960ec",
+      "games/acnh/profiles/3.0.0.json": "fe871d62fc661180ce1f897e98717407a1f16626a3f4b5394096906508224ae5",
+      "third_party/macnativegames/games/totk/third_party/d2r/patch_nso.py": "7381975abf7393389e502b3a8cecbaeeed6a5fa562551f1fd64b7e10a61cb910",
+      "third_party/macnativegames/games/totk/third_party/d2r/dynsym.py": "c8cdb3667080bf827dab0b8e2ab54db5f53ec2cea98882f3319969a88663fb59",
+      "third_party/macnativegames/games/totk/third_party/d2r/call_window.py": "a51c5350eeef1ae27934d4732f001b9d217db8495c0d97e44cd9ce2c2f191a4f",
+      "third_party/macnativegames/games/totk/third_party/d2r/relr.py": "afa0b371c494af7814ba0aa34c40f6376381269cd70895f24e61426e35129f44"
+    }
+  },
+  "verification": {
+    "status": "pass",
+    "python_optimization": 0,
+    "rewrite_manifest_sha256": "c69676612ec9cbbb6b4a7f6273ed5cf4e522bd2a138f88ff2c85d3d30bc5d9e0",
+    "modules": {
+      "main": {
+        "structure_log_sha256": "f685e51162538ff05fd7f2e9163d9ef0f46417864b81fff90e6e4db02fc0f4f3",
+        "equivalence_log_sha256": "a193a9f228babf29e75dbec77d77ef297062ac66b87f612632a7aa9a9639f8c3"
+      },
+      "subsdk0": {
+        "structure_log_sha256": "c0c4fd6a92328ad8333706813c8f2dcd49542dd68f021b806caca6403dc6e080",
+        "equivalence_log_sha256": "a13d40ed41cf4c236f85b3d3edf80d8bc80236170bd0790abd5aee2cc0c42a0e"
+      },
+      "sdk": {
+        "structure_log_sha256": "f08e38d6e92efe35f949e7a90fa5d4da8481647fda96ed304fa6aa9fa90eede5",
+        "equivalence_log_sha256": "cdf4f63ca65240226a339a4c2673c74ced5f1711352b561bdddd1783221fd380"
+      }
+    }
+  },
+  "module_results": {
+    "main": {
+      "semantic_sites": 52108,
+      "trials": 158492,
+      "effective_trials": 137090,
+      "both_fault_trials": 21402,
+      "negative_controls": 150,
+      "missed_negative_controls": 0,
+      "structural_status": "pass",
+      "semantic_status": "pass",
+      "zero_effective_sites": 0
+    },
+    "subsdk0": {
+      "semantic_sites": 9784,
+      "trials": 29859,
+      "effective_trials": 26621,
+      "both_fault_trials": 3238,
+      "negative_controls": 150,
+      "missed_negative_controls": 0,
+      "structural_status": "pass",
+      "semantic_status": "pass",
+      "zero_effective_sites": 0
+    },
+    "sdk": {
+      "semantic_sites": 15692,
+      "trials": 48090,
+      "effective_trials": 42463,
+      "both_fault_trials": 5627,
+      "negative_controls": 150,
+      "missed_negative_controls": 0,
+      "structural_status": "pass",
+      "semantic_status": "pass",
+      "zero_effective_sites": 0
+    }
+  },
+  "fonts_profile": "games/acnh/profiles/shared-fonts.json",
+  "review": "独立阶段A代码审查通过；先前3项问题修复；运行时审查与启动单独记录"
+}
