@@ -1,0 +1,9 @@
+.DS_Store
+.codegraph/
+*.keys
+*.xci
+*.nsp
+work/
+__pycache__/
+*.py[cod]
+.venv/
