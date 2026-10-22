@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "source": "本次提供的 ACNH 1.0.0 XCI 系统更新分区；NCA 六层 IVFC 与 BFTTF 头校验通过",
+  "fonts": [
+    {
+      "type": 0,
+      "title_id": "0100000000000811",
+      "bfttf_bytes": 2053636,
+      "font_bytes": 2053628,
+      "sha256": "823913c9d80807979381e327846466f561f31ba1842cea8f7fedc5ad7d45d2ad"
+    },
+    {
+      "type": 1,
+      "title_id": "0100000000000814",
+      "bfttf_bytes": 7814752,
+      "font_bytes": 7814744,
+      "sha256": "7e95d45f43c6f35ee0c7bd8ea446675d8ab0390e18fd2844abcac11d2bff7389"
+    },
+    {
+      "type": 2,
+      "title_id": "0100000000000814",
+      "bfttf_bytes": 106328,
+      "font_bytes": 106320,
+      "sha256": "0f90d45b741e9da7700c416eb2b51996b458c3e4fb3c3291740b758c298e7a25"
+    },
+    {
+      "type": 3,
+      "title_id": "0100000000000813",
+      "bfttf_bytes": 3580268,
+      "font_bytes": 3580260,
+      "sha256": "9d59b74e59a2dc92296d6bebad7cce791ba94688bd436304aaae174a58bd7457"
+    },
+    {
+      "type": 4,
+      "title_id": "0100000000000812",
+      "bfttf_bytes": 3720208,
+      "font_bytes": 3720200,
+      "sha256": "8263124a4f57f24129ed5e3d542a4494e3c3408c1ad27c4634e49e32bcb64087"
+    },
+    {
+      "type": 5,
+      "title_id": "0100000000000810",
+      "bfttf_bytes": 106120,
+      "font_bytes": 106112,
+      "sha256": "609b8eb032cae8c36325dca44da20ade8b87afe665fa884c764f4aace70cf9c9"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "title": "Animal Crossing: New Horizons",
+  "display_version": "3.0.0",
+  "title_id": "01006F8002326800",
+  "vendor": {
+    "name": "MacNativeGames",
+    "commit": "dfa7ec426f8b37798073a108ede1504c827d8af0"
+  },
+  "source_exefs": "work/acnh/input/update/exefs",
+  "romfs": {
+    "sha256": "e402e20490545b3e2f7931480c12a402a76926400203527dd4ca54e7cd1fd0f1",
+    "files": 103396
+  },
+  "modules": {
+    "main": {
+      "sha256": "0b7c72ef7812f820c508550d75fd2ec8ae51b54c971e3be8f372d3651b7d8524",
+      "build_id": "5d913cf71eb24cb22c5105b1fa3efd97"
+    },
+    "sdk": {
+      "sha256": "ba21e47098e046eb1a74c6498a10bb996566e41abfce796f2dff1aa59c8aef21",
+      "build_id": "a226048605d3597f90cb1067d141cd36"
+    },
+    "subsdk0": {
+      "sha256": "3cdbe2b9d49dc072ea8e0d84b490210472237d6749e7aab8b80fd735e551710b",
+      "build_id": "6c6ceace7be94107a8bd440bc2d60704"
+    }
+  },
+  "rewrite": {
+    "ruleset": "native",
+    "private_gates": false,
+    "expected_cuts": 0,
+    "expected_observations": 0,
+    "output": "work/acnh/3.0.0/rewritten"
+  }
+}
