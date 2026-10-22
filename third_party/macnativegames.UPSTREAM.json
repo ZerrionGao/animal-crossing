@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/ly05010419/MacNativeGames",
+  "commit": "dfa7ec426f8b37798073a108ede1504c827d8af0",
+  "license": "MIT; third_party notices apply",
+  "local_changes": "ACNH-specific changes documented in docs/implementation/; no upstream git metadata included"
+}
