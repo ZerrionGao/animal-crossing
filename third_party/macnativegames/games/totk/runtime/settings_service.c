@@ -1,4 +1,5 @@
-/* nn::settings "set" 服务：BOTW 保留语言相关实现；ACNH 仅启用已核实的地区查询 GetRegionCode(cmd 4)。 */
+/* nn::settings "set" 服务：BOTW 保留语言相关实现。ACNH 已核实地区查询 GetRegionCode(cmd 4)，
+   以及确认名字时实际到达的 GetLanguageCode(cmd 0，普通会话、8 字节、无缓冲区)。 */
 #include "ipc.h"
 #include "runtime.h"
 #include <stdio.h>
@@ -29,6 +30,21 @@ static int32_t put_codes(const IpcRequest *rq, IpcResponse *rs, unsigned limit) 
 }
 #endif
 
+#ifdef GAME_ACNH
+static int acnh_settings_no_payload(const IpcRequest *rq) {
+    return (rq->domain ? rq->data_size == 0 : rq->data_size <= 8) &&
+           !rq->nx && !rq->na && !rq->nb && !rq->nw && !rq->nc && !rq->has_pid && !rq->ncopy && !rq->nmove;
+}
+
+static uint64_t acnh_language_code(void) {
+    uint64_t (*desired)(void) = (uint64_t (*)(void))runtime_override("_ZN2nn2oe18GetDesiredLanguageEv");
+    if (desired) return desired();
+    uint64_t value = 0;
+    memcpy(&value, "zh-Hans", 7);
+    return value;
+}
+#endif
+
 static void settings_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs) {
 #ifdef GAME_ACNH
     fprintf(stderr,
@@ -36,11 +52,14 @@ static void settings_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *r
             "buffers=x%u/a%u/b%u/w%u/c%u handles=pid:%d,copy:%u,move:%u\n",
             s->name, rq->cmd, rq->type, rq->domain, rq->object_id, rq->domain_token, rq->data_size,
             rq->nx, rq->na, rq->nb, rq->nw, rq->nc, rq->has_pid, rq->ncopy, rq->nmove);
-    if (rq->cmd != 4) runtime_fail("ACNH nn::settings command is not implemented");
-    if ((rq->domain ? rq->data_size != 0 : rq->data_size > 8) ||
-        rq->nx || rq->na || rq->nb || rq->nw || rq->nc || rq->has_pid || rq->ncopy || rq->nmove) {
-        runtime_fail("ACNH GetRegionCode request shape is not supported");
+    if (rq->cmd == 0) {
+        if (!acnh_settings_no_payload(rq)) runtime_fail("ACNH GetLanguageCode request shape is not supported");
+        uint64_t language = acnh_language_code();
+        IPC_OUT(rs, language);
+        return;
     }
+    if (rq->cmd != 4) runtime_fail("ACNH nn::settings command is not implemented");
+    if (!acnh_settings_no_payload(rq)) runtime_fail("ACNH GetRegionCode request shape is not supported");
     int32_t region = 1;
     IPC_OUT(rs, region);
     return;

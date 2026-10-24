@@ -69,8 +69,23 @@ int main(int argc, char **argv) {
         CalendarTime calendar = {2024, 3, 10, 7, 0, 0, 0};
         TimeZoneRule rule;
         load_named_rule(&rule, "UTC");
-        (void)to_posix(&count, values, 2, &calendar, &rule);
-        assert(!"ToPosixTime with an HLE timezone rule must fail");
+        assert(to_posix(&count, values, 2, &calendar, &rule) == 0);
+        assert(count == 1 && values[0] == 1710054000LL && values[1] == 0x23456789aLL);
+        load_named_rule(&rule, "Asia/Hong_Kong");
+        calendar = (CalendarTime){2024, 3, 10, 15, 0, 0, 0};
+        count = -1; values[0] = 0;
+        assert(to_posix(&count, values, 2, &calendar, &rule) == 0);
+        assert(count == 1 && values[0] == 1710054000LL);
+        load_named_rule(&rule, "America/New_York");
+        calendar = (CalendarTime){2024, 3, 10, 2, 30, 0, 0};
+        count = -1; values[0] = 1; values[1] = 2;
+        assert(to_posix(&count, values, 2, &calendar, &rule) == 0);
+        assert(count == 0 && values[0] == 1 && values[1] == 2);
+        calendar = (CalendarTime){2024, 11, 3, 1, 30, 0, 0};
+        count = -1;
+        assert(to_posix(&count, values, 2, &calendar, &rule) == 0);
+        assert(count == 2 && values[0] == 1730611800LL && values[1] == 1730615400LL);
+        return 0;
     }
     if (argc > 1 && strcmp(argv[1], "invalid-name") == 0) {
         TimeZoneRule rule;

@@ -56,6 +56,16 @@ class AcnhNifmFactoryTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(expected, result.stderr)
 
+            applet_info = subprocess.run([str(binary), "factory-applet-info"], capture_output=True, text=True)
+            self.assertEqual(applet_info.returncode, 0, applet_info.stderr)
+            self.assertIn("GetAppletInfo: no system applet offline (0x26e6e)", applet_info.stderr)
+            self.assertIn("GetAppletInfo: no system applet offline (0x8986e)", applet_info.stderr)
+
+            applet_info_shape = subprocess.run([str(binary), "factory-applet-info-shape"], capture_output=True, text=True)
+            self.assertEqual(applet_info_shape.returncode, 0, applet_info_shape.stderr)
+            self.assertIn("GetAppletInfo rejected shape", applet_info_shape.stderr)
+            self.assertIn("buffers=x0/a0/b0", applet_info_shape.stderr)
+
             rejected_submit = subprocess.run([str(binary), "factory-submit-option"], capture_output=True, text=True)
             self.assertNotEqual(rejected_submit.returncode, 0)
             self.assertIn("Submit rejected confirmation option=1", rejected_submit.stderr)

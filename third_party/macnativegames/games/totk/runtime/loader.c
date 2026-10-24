@@ -24,7 +24,19 @@
 #define NM (sizeof(modules)/sizeof(modules[0]))
 pthread_key_t runtime_keys[8];
 static uint64_t timer_calls, svc_calls;
-_Noreturn void runtime_fail(const char *message) { fprintf(stderr,"[totk] FAIL: %s\n",message); exit(1); }
+static int fail_log_open(void) {
+ const char *dir = getenv("TOTK_PROFILE_DIR");
+ if (!dir || strlen(dir) >= 900) return -1;
+ char path[1024]; snprintf(path, sizeof path, "%s/runtime-fail.log", dir);
+ return open(path, O_WRONLY | O_CREAT | O_APPEND, 0600);
+}
+_Noreturn void runtime_fail(const char *message) {
+ fprintf(stderr,"[totk] FAIL: %s\n",message);
+ fflush(stderr);
+ int fd = fail_log_open();
+ if (fd >= 0) { dprintf(fd, "[totk] FAIL: %s\n", message); close(fd); }
+ exit(1);
+}
 static void need(bool c,const char *m) { if(!c) runtime_fail(m); }
 static size_t page_up(size_t x) { return (x+0x3fff)&~(size_t)0x3fff; }
 static unsigned hash_name(const char *s) { unsigned h=2166136261u; for(;*s;s++)h=(h^(uint8_t)*s)*16777619u;return h; }
@@ -127,13 +139,19 @@ int runtime_module_query(uint64_t address,uint64_t *base,uint64_t *size,unsigned
 void runtime_describe_address(uint64_t a,char *out,size_t n){for(unsigned i=0;i<NM;i++)if(a>=(uintptr_t)modules[i].base&&a<(uintptr_t)modules[i].base+modules[i].size){snprintf(out,n,"%s+0x%llx",modules[i].name,(unsigned long long)(a-(uintptr_t)modules[i].base));return;}Dl_info di;if(dladdr((void *)(uintptr_t)a,&di)&&di.dli_sname){snprintf(out,n,"%s+0x%llx",di.dli_sname,(unsigned long long)(a-(uintptr_t)di.dli_saddr));return;}snprintf(out,n,"0x%llx",(unsigned long long)a);}
 /* Guest frame-pointer chain. Guest threads run on guest stacks (not the host pthread stack), so frames are read with
    mach_vm_read_overwrite (a bad pointer ends the walk instead of faulting); the chain must grow upwards. */
+/* 只在 Break、未实现服务等诊断路径上调用；同时写进 runtime-fail.log，stderr 丢失时仍可定位。 */
 void runtime_trace_guest(uint64_t fp,uint64_t lr) {
+ int fd=fail_log_open();
  for(unsigned n=0;n<16;n++) {
-  for(unsigned i=0;i<NM;i++)if(lr>=(uintptr_t)modules[i].base&&lr<(uintptr_t)modules[i].base+modules[i].size)fprintf(stderr,"[totk] caller %s+0x%llx\n",modules[i].name,(unsigned long long)(lr-(uintptr_t)modules[i].base));
+  for(unsigned i=0;i<NM;i++)if(lr>=(uintptr_t)modules[i].base&&lr<(uintptr_t)modules[i].base+modules[i].size){
+   fprintf(stderr,"[totk] caller %s+0x%llx\n",modules[i].name,(unsigned long long)(lr-(uintptr_t)modules[i].base));
+   if(fd>=0)dprintf(fd,"[totk] caller %s+0x%llx\n",modules[i].name,(unsigned long long)(lr-(uintptr_t)modules[i].base));
+  }
   if(!fp||fp%8)break;uint64_t f[2];mach_vm_size_t got=0;
   if(mach_vm_read_overwrite(mach_task_self(),fp,16,(uintptr_t)f,&got)!=KERN_SUCCESS||got!=16)break;
   lr=f[1];if(f[0]<=fp||f[0]-fp>(64u<<20))break;fp=f[0];
  }
+ if(fd>=0)close(fd);
 }
 static void *required(const char *name) { void *p=runtime_symbol(name);if(!p){fprintf(stderr,"missing %s\n",name);runtime_fail("required symbol");}return p; }
 #if TARGET_OS_IPHONE

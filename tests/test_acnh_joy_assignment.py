@@ -40,6 +40,9 @@ class AcnhJoyAssignmentTests(unittest.TestCase):
                     self.assertIn("id=0x7 ", run_result.stderr)
                     self.assertIn("id=0x10 ", run_result.stderr)
                     self.assertIn("id=0x20 ", run_result.stderr)
+                    self.assertEqual(run_result.stderr.count("mode=single"), 2)
+                    self.assertIn("GetNpadControllerColor no-controller id=0x0 ", run_result.stderr)
+                    self.assertIn("SwapNpadAssignment id=0x7 other=0x0", run_result.stderr)
                 else:
                     self.assertNotIn("mode=dual", run_result.stderr)
 

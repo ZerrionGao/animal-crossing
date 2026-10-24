@@ -52,6 +52,12 @@ class AcnhOlscOfflineTests(unittest.TestCase):
         )
         self.assertNotIn("PRIVATE", stderr)
 
+    def test_set_setting_is_kept_locally_and_read_back(self):
+        stderr = self.run_probe("set-setting")
+        self.assertIn("backup setting for the local user: disabled (kept in this process only)", stderr)
+        self.assertIn("backup setting for the local user: enabled (kept in this process only)", stderr)
+        self.assertNotIn("1122334455667788", stderr)
+
     def test_get_setting_requires_initialize_for_each_session(self):
         for mode in ("uninitialized", "reopened-session"):
             with self.subTest(mode=mode):
@@ -66,6 +72,10 @@ class AcnhOlscOfflineTests(unittest.TestCase):
             "get-setting-with-pid": "GetSetting request shape is not supported",
             "get-setting-with-buffer": "GetSetting request shape is not supported",
             "get-setting-with-handle": "GetSetting request shape is not supported",
+            "set-setting-wrong-uid": "SetSettingEnabled UID is not the local user",
+            "set-setting-bad-value": "SetSettingEnabled value is not a bool",
+            "set-setting-uninitialized": "SetSettingEnabled before Initialize",
+            "set-setting-bad-shape": "SetSettingEnabled request shape is not supported",
             "unknown-command": "command is not implemented",
         }
         for mode, message in expected.items():

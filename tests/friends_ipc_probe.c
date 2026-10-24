@@ -12,6 +12,11 @@ static void *handles[4096];
 static uint32_t next_handle = 0x1000;
 static int child_failure_mode;
 
+typedef uint32_t (*FriendStatusFn)(void);
+typedef uint32_t (*FriendListFn)(int *, void *, const void *, int, int);
+typedef uint32_t (*FriendListFilteredFn)(int *, void *, const void *, int, int, const void *);
+typedef uint32_t (*FriendHistoryKeyFn)(unsigned char *, const void *, int);
+
 _Noreturn void runtime_fail(const char *message) {
     fprintf(stderr, "[probe-fail] %s\n", message);
     if (child_failure_mode) exit(42);
@@ -102,7 +107,56 @@ static uint32_t open_friend_service(uint32_t *message) {
     return handle;
 }
 
+static void test_offline_online_guards(void) {
+    FriendStatusFn open_session = (FriendStatusFn)runtime_friends_override(
+        "_ZN2nn7friends28DeclareOpenOnlinePlaySessionERKNS_7account3UidE");
+    FriendStatusFn close_session = (FriendStatusFn)runtime_friends_override(
+        "_ZN2nn7friends29DeclareCloseOnlinePlaySessionERKNS_7account3UidE");
+    FriendStatusFn ensure_list = (FriendStatusFn)runtime_friends_override(
+        "_ZN2nn7friends25EnsureFriendListAvailableEPNS0_12AsyncContextERKNS_7account3UidE");
+    FriendHistoryKeyFn history_key = (FriendHistoryKeyFn)runtime_friends_override(
+        "_ZN2nn7friends29GetPlayHistoryRegistrationKeyEPNS0_26PlayHistoryRegistrationKeyERKNS_7account3UidEb");
+    assert(open_session && close_session && ensure_list && history_key);
+    assert(open_session() == 0xc79u);
+    assert(close_session() == 0xc79u);
+    assert(ensure_list() == 0xc79u);
+    unsigned char key[0x40];
+    memset(key, 0x5a, sizeof key);
+    assert(history_key(key, (const void *)1, 0) == 0xc79u);
+    for (unsigned i = 0; i < sizeof key; i++) assert(key[i] == 0x5a);
+}
+
+static void test_empty_list_boundaries(void) {
+    FriendListFn blocked = (FriendListFn)runtime_friends_override(
+        "_ZN2nn7friends18GetBlockedUserListEPiPNS_7account23NetworkServiceAccountIdERKNS2_3UidEii");
+    FriendListFilteredFn friends = (FriendListFilteredFn)runtime_friends_override(
+        "_ZN2nn7friends13GetFriendListEPiPNS0_6FriendERKNS_7account3UidEiiRKNS0_12FriendFilterE");
+    assert(blocked && friends);
+    int count = 99;
+    unsigned char uid[8] = {0};
+    unsigned char out[8] = {0x5a};
+    unsigned char filter[8] = {0};
+    assert(blocked(&count, out, uid, 0, 0) == 0);
+    assert(count == 0);
+    assert(blocked(&count, NULL, uid, 0, 1) == 0x1c79u);
+    assert(blocked(&count, out, NULL, 0, 0) == 0x1c79u);
+    assert(blocked(&count, out, uid, -1, 0) == 0x1c79u);
+    assert(friends(&count, out, uid, 0, 0, filter) == 0);
+    assert(count == 0);
+    assert(friends(&count, out, uid, 0, 0, NULL) == 0x1c79u);
+}
+
 int main(int argc, char **argv) {
+#ifdef GAME_ACNH
+    if (argc > 1 && strcmp(argv[1], "online-guards") == 0) {
+        test_offline_online_guards();
+        return 0;
+    }
+    if (argc > 1 && strcmp(argv[1], "empty-list-bounds") == 0) {
+        test_empty_list_boundaries();
+        return 0;
+    }
+#endif
     child_failure_mode = argc > 1 &&
         (strcmp(argv[1], "child-fail") == 0 || strcmp(argv[1], "malformed-root") == 0);
     int malformed_root_mode = argc > 1 && strcmp(argv[1], "malformed-root") == 0;

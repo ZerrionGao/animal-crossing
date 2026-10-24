@@ -2,6 +2,7 @@
 #include <TargetConditionals.h>
 #include "runtime.h"
 #include "autoload.h"
+#include "movie_host.h"
 #include "world_survey.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -46,8 +47,40 @@ void runtime_input_key_synthetic(unsigned code,int down){if(code>=128)return;pth
  if(press&&code==KEY_TAA_TOGGLE){extern void taa_toggle(void);taa_toggle();}
 #endif
 }
-void runtime_input_key(unsigned code,int down){if(down&&code<128)user_input("keyboard");runtime_input_key_synthetic(code,down);}
-void runtime_input_clear(void){pthread_mutex_lock(&inputLock);memset(keys,0,sizeof(keys));pending=0;pthread_mutex_unlock(&inputLock);runtime_gamepad_clear();}
+#ifdef GAME_ACNH
+/* 数字键 1：连按空格（B，对话下一步），直到登机影片的解码器配好。再按一次停下。 */
+static _Atomic int dialogue_rush;
+static unsigned char dialogue_rush_key_down;
+static unsigned char dialogue_rush_b;
+static int dialogue_rush_toggle_locked(void) {
+    int on = !atomic_load(&dialogue_rush);
+    atomic_store(&dialogue_rush, on);
+    if (!on) dialogue_rush_b = 0;
+    return on;
+}
+#endif
+void runtime_input_key(unsigned code,int down){
+ if(down&&code<128)user_input("keyboard");
+#ifdef GAME_ACNH
+ if(code==18){
+  int press=0,on=0;
+  pthread_mutex_lock(&inputLock);
+  if(down){
+   press=!dialogue_rush_key_down;dialogue_rush_key_down=1;
+   if(press)on=dialogue_rush_toggle_locked();
+  }else dialogue_rush_key_down=0;
+  pthread_mutex_unlock(&inputLock);
+  if(press)fprintf(stderr,on?"[acnh] 连按空格快进对话，影片一开始就停\n":"[acnh] 已停止快进对话\n");
+  return;
+ }
+#endif
+ runtime_input_key_synthetic(code,down);
+}
+void runtime_input_clear(void){pthread_mutex_lock(&inputLock);memset(keys,0,sizeof(keys));pending=0;
+#ifdef GAME_ACNH
+ atomic_store(&dialogue_rush,0);dialogue_rush_key_down=0;dialogue_rush_b=0;
+#endif
+ pthread_mutex_unlock(&inputLock);runtime_gamepad_clear();}
 static void initialize(void){pthread_mutex_lock(&inputLock);enabled=true;pthread_mutex_unlock(&inputLock);fprintf(stderr,"[totk] native keyboard controller initialized\n");}
 /* Docked: one full-key controller as player 1 (id 0, style bit 0). Handheld (TOTK_OPERATION_MODE=handheld, the iPhone):
    the same input is the handheld controller (id 0x20, style bit 1, joy-cons attached) and player 1 is not connected;
@@ -65,31 +98,108 @@ static uint32_t style(const uint32_t *id){if(!id)runtime_fail("controller id poi
 static int pad_states(NpadState *out,int max,const uint32_t *id,uint32_t want_style);
 static int full_states(NpadState *out,int max,const uint32_t *id){return pad_states(out,max,id,1);}
 static int handheld_states(NpadState *out,int max,const uint32_t *id){return pad_states(out,max,id,2);}
-static int pad_states(NpadState *out,int max,const uint32_t *id,uint32_t want_style){if(max<=0)return 0;if(id)input_log(want_style==2?"handheld state":"full-key state",*id);if(!out||!id)runtime_fail("controller output pointer");pthread_mutex_lock(&inputLock);NpadState state={.sampling=++sample};if(enabled&&allowed&&*id==pad_id()&&want_style==pad_style()&&(styles&want_style)){
- state.attributes=1;for(unsigned i=0;i<128;i++)if(keys[i])state.buttons|=button(i);state.buttons|=pending;pending=0;
+static int pad_states(NpadState *out,int max,const uint32_t *id,uint32_t want_style){if(max<=0)return 0;if(id)input_log(want_style==2?"handheld state":"full-key state",*id);if(!out||!id)runtime_fail("controller output pointer");
+#ifdef GAME_ACNH
+ int rush_stop=0;
+#endif
+ pthread_mutex_lock(&inputLock);
+#ifdef GAME_ACNH
+ if(atomic_load(&dialogue_rush)){
+ if(movie_host_configured()){if(atomic_exchange(&dialogue_rush,0))rush_stop=1;dialogue_rush_b=0;}
+  else dialogue_rush_b=(unsigned char)((runtime_now_ns()/160000000ull)&1);
+ }
+#endif
+ NpadState state={.sampling=++sample};if(enabled&&allowed&&*id==pad_id()&&want_style==pad_style()&&(styles&want_style)){
+ state.attributes=1;for(unsigned i=0;i<128;i++)if(keys[i])state.buttons|=button(i);
+#ifdef GAME_ACNH
+ if(dialogue_rush_b)state.buttons|=button(49);
+#endif
+ state.buttons|=pending;pending=0;
  state.lx=32767*((int)keys[2]-(int)keys[0]);state.ly=32767*((int)keys[13]-(int)keys[1]);state.rx=32767*((int)keys[124]-(int)keys[123]);state.ry=32767*((int)keys[126]-(int)keys[125]);
  RuntimeGamepadState pad;runtime_gamepad_read(&pad);state.buttons|=pad.buttons;
  if(pad.buttons&~padSeen||abs(pad.lx)>16384||abs(pad.ly)>16384||abs(pad.rx)>16384||abs(pad.ry)>16384)user_input("controller");padSeen=pad.buttons;
  if(abs(pad.lx)>abs(state.lx))state.lx=pad.lx;if(abs(pad.ly)>abs(state.ly))state.ly=pad.ly;
  if(abs(pad.rx)>abs(state.rx))state.rx=pad.rx;if(abs(pad.ry)>abs(state.ry))state.ry=pad.ry;
- }*out=state;pthread_mutex_unlock(&inputLock);return 1;}
+ }*out=state;pthread_mutex_unlock(&inputLock);
+#ifdef GAME_ACNH
+ if(rush_stop)fprintf(stderr,"[acnh] 影片已开始，停止快进\n");
+#endif
+ return 1;}
 static int disconnected_states(NpadState *out,int max,const uint32_t *id){if(id)input_log("joy-con state",*id);if(max<=0)return 0;if(!out)runtime_fail("controller output pointer");pthread_mutex_lock(&inputLock);*out=(NpadState){.sampling=++sample};pthread_mutex_unlock(&inputLock);return 1;}
 static void hold_type(int type){if(type<0||type>1)runtime_fail("invalid joy hold type");holdType=type;(void)holdType;}
 static void disconnect(const uint32_t *id){if(!id)runtime_fail("disconnect id");input_log("disconnect",*id);if(*id==pad_id()){   /* only the pad in use: in handheld mode TOTK disconnects player 1 */pthread_mutex_lock(&inputLock);allowed=false;pthread_mutex_unlock(&inputLock);runtime_input_clear();}}
 #ifdef GAME_ACNH
-/* 原 SDK 从 Npad 共享内存读取 Joy 分配；宿主没有填充对应槽位时，公开接口会以 hid 710 中止。
-   当前只有一个完整手柄，分配模式固定为 Dual（0）。玩家 0–7、Other 和 Handheld 都返回该模式。 */
+/* 原 SDK 的 hid detail 层读 Npad 共享内存或 hid 会话；宿主两者都没有，公开接口拿到错误就中止
+   （GetNpadJoyAssignment 为 hid 710，白狗弹完吉他后的 GetNpadControllerColor 为 hid 0x58cca）。
+   这里只有一个完整手柄：分配模式按编号记录（0 Dual，1 Single，初始 Dual），Joy-Con 的合并与交换不移动它，
+   双 Joy-Con 颜色报 NoController（hid 0x4b8ca，公开接口按未连接返回，游戏改用默认颜色）。
+   下标 0–7 为玩家，8 为 Other，9 为 Handheld。 */
+static unsigned char joy_mode[10];   /* inputLock */
+static unsigned joy_index(const uint32_t *id) {
+    if (!id) runtime_fail("ACNH npad id is null");
+    if (*id < 8) return *id;
+    if (*id == 0x10) return 8;
+    if (*id == 0x20) return 9;
+    runtime_fail("ACNH npad id is not supported");
+}
+static void joy_note(const char *what, uint32_t a, uint32_t b) {
+    static char seen[12][10][10];
+    static const char *names[12];
+    unsigned k = 0;
+    while (k < 12 && names[k] && strcmp(names[k], what)) k++;
+    if (k == 12) return;
+    names[k] = what;
+    unsigned ia = joy_index(&a), ib = joy_index(&b);
+    if (seen[k][ia][ib]) return;
+    seen[k][ia][ib] = 1;
+    fprintf(stderr, "[acnh-hid] %s id=0x%x other=0x%x\n", what, a, b);
+}
 static int joy_assignment(const uint32_t *id) {
-    if (!id) runtime_fail("ACNH joy assignment id is null");
-    uint32_t value = *id;
-    if (!(value < 8 || value == 0x10 || value == 0x20)) runtime_fail("ACNH joy assignment id is not supported");
-    input_log("joy assignment", value);
-    static uint32_t logged[16];
-    static unsigned nlogged;
-    int fresh = 1;
-    for (unsigned i = 0; i < nlogged; i++) if (logged[i] == value) { fresh = 0; break; }
-    if (fresh && nlogged < 16) logged[nlogged++] = value;
-    if (fresh) fprintf(stderr, "[acnh-hid] GetNpadJoyAssignment id=0x%x mode=dual\n", value);
+    unsigned i = joy_index(id);
+    input_log("joy assignment", *id);
+    pthread_mutex_lock(&inputLock); int mode = joy_mode[i]; pthread_mutex_unlock(&inputLock);
+    joy_note(mode ? "GetNpadJoyAssignment mode=single" : "GetNpadJoyAssignment mode=dual", *id, *id);
+    return mode;
+}
+static uint32_t joy_set_mode(const uint32_t *id, unsigned char mode, const char *what) {
+    unsigned i = joy_index(id);
+    pthread_mutex_lock(&inputLock); joy_mode[i] = mode; pthread_mutex_unlock(&inputLock);
+    joy_note(what, *id, *id);
+    return 0;
+}
+static uint32_t joy_dual_mode(const uint32_t *id) { return joy_set_mode(id, 0, "SetNpadJoyAssignmentModeDual"); }
+static uint32_t joy_single_mode(const uint32_t *id) { return joy_set_mode(id, 1, "SetNpadJoyAssignmentModeSingle"); }
+static uint32_t joy_single_device(const uint32_t *id, uint32_t device) {
+    if (device > 1) runtime_fail("ACNH npad joy device type is not supported");
+    return joy_set_mode(id, 1, "SetNpadJoyAssignmentModeSingle(device)");
+}
+static uint32_t joy_merge(const uint32_t *a, const uint32_t *b) {
+    unsigned i = joy_index(a); joy_index(b);
+    pthread_mutex_lock(&inputLock); joy_mode[i] = 0; pthread_mutex_unlock(&inputLock);
+    joy_note("MergeSingleJoyAsDualJoy", *a, *b);
+    return 0;
+}
+static uint32_t joy_swap(const uint32_t *a, const uint32_t *b) {
+    joy_index(a); joy_index(b);
+    joy_note("SwapNpadAssignment", *a, *b);
+    return 0;
+}
+static uint32_t controller_color(void *left, void *right, const uint32_t *id) {
+    if (!left || !right) runtime_fail("ACNH npad controller color pointer");
+    joy_index(id);
+    joy_note("GetNpadControllerColor no-controller", *id, *id);
+    return 0x4b8ca;
+}
+/* Switch 玩家灯：1–4 号依次点亮 1–4 颗，5–8 号为 1001、0101、1101、0110（低位为第一颗）；Other 与 Handheld 不亮。 */
+static uint32_t player_led(uint8_t *out, const uint32_t *id) {
+    static const uint8_t pattern[10] = {0x1, 0x3, 0x7, 0xf, 0x9, 0x5, 0xd, 0x6, 0, 0};
+    if (!out) runtime_fail("ACNH player led pointer");
+    *out = pattern[joy_index(id)];
+    return 0;
+}
+static uint32_t supported_style_set(uint32_t *out) {
+    if (!out) runtime_fail("ACNH supported npad style pointer");
+    pthread_mutex_lock(&inputLock); *out = styles; pthread_mutex_unlock(&inputLock);
     return 0;
 }
 #endif
@@ -153,7 +263,15 @@ void *runtime_input_override(const char *name){
  {"_ZN2nn3hid19GetTouchScreenStateILm1EEEvPNS0_16TouchScreenStateIXT_EEE",touch_state_1}
 #endif
 #ifdef GAME_ACNH
- ,{"_ZN2nn3hid20GetNpadJoyAssignmentERKj",joy_assignment}
+ ,{"_ZN2nn3hid20GetNpadJoyAssignmentERKj",joy_assignment},
+ {"_ZN2nn3hid6detail28SetNpadJoyAssignmentModeDualERKj",joy_dual_mode},
+ {"_ZN2nn3hid6detail30SetNpadJoyAssignmentModeSingleERKj",joy_single_mode},
+ {"_ZN2nn3hid6detail30SetNpadJoyAssignmentModeSingleERKjNS0_17NpadJoyDeviceTypeE",joy_single_device},
+ {"_ZN2nn3hid6detail23MergeSingleJoyAsDualJoyERKjS3_",joy_merge},
+ {"_ZN2nn3hid6detail18SwapNpadAssignmentERKjS3_",joy_swap},
+ {"_ZN2nn3hid6detail22GetNpadControllerColorEPNS0_19NpadControllerColorES3_RKj",controller_color},
+ {"_ZN2nn3hid6detail19GetPlayerLedPatternEPhRKj",player_led},
+ {"_ZN2nn3hid6detail24GetSupportedNpadStyleSetEPNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE",supported_style_set}
 #endif
 #ifdef GAME_BOTW
  ,{"_ZN2nn3hid28InitializeSevenSixAxisSensorEPvm",seven_axis_init},{"_ZN2nn3hid26FinalizeSevenSixAxisSensorEv",seven_axis_ok},

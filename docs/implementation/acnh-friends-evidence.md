@@ -9,3 +9,7 @@
 在真实游戏查询前，空好友列表、通知事件与在线状态都不能计为已验证功能。
 
 第八次启动已实际打开服务并观察到 domain 根对象上的命令 0：type 6、object ID 1、数据区 0 字节，无缓冲区和句柄参数。诊断入口按设计明确停止。下一次仅补 `IServiceCreator` 命令 0 的 `IFriendService` 对象创建；未知子命令继续失败，不把这一阶段算作好友功能完成。
+
+后续运行保持这一 IPC 范围：`friend:u` 只注册已观测的普通服务，`CreateFriendService` 的未知或畸形请求以及 `IFriendService` 子命令继续明确失败。直接调用的本地列表查询只在参数边界有效时报告诚实的空列表；空指针、负偏移、负或过大数量以及缺少过滤条件都会返回无效参数。
+
+在线会话声明、好友列表准备、好友资料更新、好友请求、游玩历史写入和游玩历史注册密钥都不在离线兼容范围内，统一返回 friends 模块的 `ResultInternetRequestNotAccepted`（`0xc79`）。密钥函数不写入全零占位值。该结果码与[错误码表](https://switchbrew.org/wiki/Error_codes)一致；好友服务命令表见[Friend services](https://switchbrew.org/wiki/Friend_services)。

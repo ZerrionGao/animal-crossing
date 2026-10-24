@@ -201,6 +201,18 @@ static void make_domain_xdesc(uint32_t *m, uint32_t object_id, uint32_t cmd) {
     m[2] = 0; m[3] = 0;
 }
 
+#ifdef GAME_ACNH
+static void make_domain_bdesc(uint32_t *m, uint32_t object_id, uint32_t cmd, const void *args, unsigned arg_size) {
+    make_domain(m, object_id, cmd, args, arg_size);
+    uint8_t payload[0x100];
+    unsigned payload_size = 16 + 16 + arg_size;
+    memcpy(payload, (uint8_t *)m + 16, payload_size);
+    memset((uint8_t *)m + 8, 0, 0x100 - 8);
+    m[0] |= 1u << 24; /* 一个零长度 B descriptor，raw data 从偏移 20 开始，载荷对齐到 32。 */
+    m[1] = (16u + payload_size + 3u) / 4u;
+    memcpy((uint8_t *)m + 32, payload, payload_size);
+}
+#endif
 static void make_domain_close(uint32_t *m, uint32_t object_id) {
     memset(m, 0, 0x100);
     m[0] = 4; m[1] = 8;
@@ -320,6 +332,7 @@ int main(int argc, char **argv) {
         }
         if (strcmp(argv[1], "factory-unknown") == 0 || strcmp(argv[1], "factory-valid") == 0 ||
             strcmp(argv[1], "factory-submit") == 0 || strcmp(argv[1], "factory-submit-option") == 0 ||
+            strncmp(argv[1], "factory-applet-info", 19) == 0 ||
             strncmp(argv[1], "factory-lifecycle-shape-", 24) == 0 ||
             strncmp(argv[1], "factory-option-", 15) == 0) {
             make_domain(m, general_id, 4, &preset, sizeof preset); m[0] = 6; send_frame(static_handle, m);
@@ -401,6 +414,29 @@ int main(int argc, char **argv) {
             if (strcmp(argv[1], "factory-unknown") == 0) {
                 make_domain(m, child_id, 3, NULL, 0); m[0] = 6; send_frame(static_handle, m);
                 abort();
+            }
+            if (strcmp(argv[1], "factory-applet-info") == 0) {
+                uint32_t theme = 0;
+                make_domain_bdesc(m, child_id, 21, &theme, sizeof theme); m[0] = (m[0] & ~0xffffu) | 6;
+                send_frame(static_handle, m);
+                assert(response_result_with_handles(m, 1) == 0x26e6eu);
+                uint8_t option = 4;
+                make_domain(m, child_id, 11, &option, sizeof option); m[0] = 6; send_frame(static_handle, m);
+                assert(response_result_with_handles(m, 1) == 0);
+                nifm_domain_empty(m, static_handle, child_id, 4);
+                assert(response_result_with_handles(m, 1) == 0x8986eu);
+                make_domain_bdesc(m, child_id, 21, &theme, sizeof theme); m[0] = (m[0] & ~0xffffu) | 6;
+                send_frame(static_handle, m);
+                assert(response_result_with_handles(m, 1) == 0x8986eu);
+                return 0;
+            }
+            if (strcmp(argv[1], "factory-applet-info-shape") == 0) {
+                uint32_t theme = 0;
+                make_domain(m, child_id, 21, &theme, sizeof theme); m[0] = 6;
+                catch_runtime_fail = 1;
+                if (!setjmp(fail_jump)) { send_frame(static_handle, m); abort(); }
+                catch_runtime_fail = 0;
+                return 0;
             }
             if (strncmp(argv[1], "factory-option-", 15) == 0) {
                 uint8_t option = 4;

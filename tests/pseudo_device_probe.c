@@ -17,6 +17,7 @@ _Noreturn void runtime_fail(const char *message) {
 int runtime_core_away(void) { return 0; }
 void runtime_core_back(int *away) { (void)away; }
 void hle_bind_system_event(void *event, int autoclear) { (void)event; (void)autoclear; }
+int runtime_fs_save_busy(void) { return 0; }
 
 int main(int argc, char **argv) {
     void (*get_id)(unsigned char *) = runtime_applet_override("_ZN2nn2oe17GetPseudoDeviceIdEPNS_4util4UuidE");

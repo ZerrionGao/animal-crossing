@@ -57,6 +57,7 @@ void runtime_oe_enter_exit_request_section(void);
 void runtime_oe_leave_exit_request_section(void);
 int runtime_oe_request_exit_notification(void);
 void *runtime_bcat_override(const char *name);
+void *runtime_friends_override(const char *name);
 #endif
 void hle_bind_system_event(void *event, int autoclear);
 uint64_t runtime_svc(unsigned num, uint64_t *regs, const char *module, uint64_t offset);

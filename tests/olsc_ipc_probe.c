@@ -115,6 +115,14 @@ static void send_get_setting(uint32_t service, uint32_t *message,
     send_frame(service, message);
 }
 
+static void send_set_setting(uint32_t service, uint32_t *message, uint8_t enabled, const uint64_t uid[2]) {
+    uint8_t args[24] = {0};
+    args[0] = enabled;
+    memcpy(args + 8, uid, 16);
+    make_domain(message, 14, args, sizeof args, 0, 0, 0);
+    send_frame(service, message);
+}
+
 static uint32_t open_olsc(uint32_t *message) {
     uint64_t regs[31] = {0};
     regs[1] = (uintptr_t)"sm:";
@@ -192,10 +200,49 @@ int main(int argc, char **argv) {
         send_get_setting(olsc, message, uid, 0, 0, 1);
         assert(!"GetSetting with a handle must fail");
     }
-    if (!strcmp(mode, "unknown-command")) {
+    if (!strcmp(mode, "set-setting")) {
+        uint32_t olsc = open_and_convert(message);
+        send_init(olsc, message, 0, 1);
+        send_set_setting(olsc, message, 0, uid);
+        assert(response_result(message, 1) == 0);
+        send_get_setting(olsc, message, uid, 0, 0, 0);
+        assert(response_result(message, 1) == 0 && *((uint8_t *)message + 48) == 0);
+        send_set_setting(olsc, message, 1, uid);
+        assert(response_result(message, 1) == 0);
+        send_get_setting(olsc, message, uid, 0, 0, 0);
+        assert(response_result(message, 1) == 0 && *((uint8_t *)message + 48) == 1);
+        runtime_ipc_session_closed(runtime_handle_get(olsc, 1));
+        return 0;
+    }
+    if (!strcmp(mode, "set-setting-wrong-uid")) {
+        uint32_t olsc = open_and_convert(message);
+        send_init(olsc, message, 0, 1);
+        const uint64_t other_uid[2] = {0x53454e54494e454cULL, 0x5052495641544500ULL};
+        send_set_setting(olsc, message, 0, other_uid);
+        assert(!"nonlocal UID must fail");
+    }
+    if (!strcmp(mode, "set-setting-bad-value")) {
+        uint32_t olsc = open_and_convert(message);
+        send_init(olsc, message, 0, 1);
+        send_set_setting(olsc, message, 2, uid);
+        assert(!"non-bool value must fail");
+    }
+    if (!strcmp(mode, "set-setting-uninitialized")) {
+        uint32_t olsc = open_and_convert(message);
+        send_set_setting(olsc, message, 0, uid);
+        assert(!"SetSettingEnabled before Initialize must fail");
+    }
+    if (!strcmp(mode, "set-setting-bad-shape")) {
         uint32_t olsc = open_and_convert(message);
         send_init(olsc, message, 0, 1);
         make_domain(message, 14, NULL, 0, 0, 0, 0);
+        send_frame(olsc, message);
+        assert(!"SetSettingEnabled without arguments must fail");
+    }
+    if (!strcmp(mode, "unknown-command")) {
+        uint32_t olsc = open_and_convert(message);
+        send_init(olsc, message, 0, 1);
+        make_domain(message, 15, NULL, 0, 0, 0, 0);
         send_frame(olsc, message);
         assert(!"unimplemented command must fail");
     }

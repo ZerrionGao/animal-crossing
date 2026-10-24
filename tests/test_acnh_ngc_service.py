@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -17,8 +18,8 @@ class AcnhNgcServiceTests(unittest.TestCase):
         result = subprocess.run(
             [
                 "xcrun", "clang", "-DGAME_ACNH", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                str(PROBE), str(RUNTIME / "ipc.c"), str(RUNTIME / "ngc_service.c"),
-                f"-I{RUNTIME}", "-pthread", "-o", str(binary),
+                    str(PROBE), str(RUNTIME / "ipc.c"), str(RUNTIME / "ngc_service.c"),
+                    str(RUNTIME / "ngc_aho.c"), f"-I{RUNTIME}", "-pthread", "-lz", "-o", str(binary),
             ],
             capture_output=True,
             text=True,
@@ -37,6 +38,42 @@ class AcnhNgcServiceTests(unittest.TestCase):
                 "data=40 buffers=x0/a0/b0/w0/c0 handles=pid:0,copy:0,move:0",
                 result.stderr,
             )
+            self.assertIn("ACNH ngc:u command is not implemented", result.stderr)
+            self.assertNotIn("PRIVATE_PLAYER_TEXT_SENTINEL", result.stderr)
+
+    def test_mask_copies_text_without_logging_it_when_no_word_database(self):
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.compile_probe(temp)
+            env = {**os.environ, "TOTK_NGC_DIR": str(Path(temp) / "missing-ngc")}
+            result = subprocess.run([str(binary), "mask"], capture_output=True, text=True, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(
+                "[acnh-ngc] request service=ngc:u cmd=2 type=6 domain=0 object=0 token=0 "
+                "data=40 buffers=x0/a1/b1/w0/c0 handles=pid:0,copy:0,move:0",
+                result.stderr,
+            )
+            self.assertIn("原文照写", result.stderr)
+            self.assertNotIn("PRIVATE_PLAYER_TEXT_SENTINEL", result.stderr)
+
+    def test_mask_replaces_dictionary_word_without_logging_it(self):
+        romfs = ROOT / "work/research/ngword2-from-xci-20261023/romfs/ac_common_not_b_nx"
+        if not romfs.is_file():
+            self.skipTest("本机 NgWord2 词库不在工作区")
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.compile_probe(temp)
+            env = {**os.environ, "TOTK_NGC_DIR": str(romfs.parent)}
+            result = subprocess.run(
+                [str(binary), "mask-dict", str(romfs)], capture_output=True, text=True, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Mask 使用 NgWord2", result.stderr)
+            self.assertNotIn("原文照写", result.stderr)
+
+    def test_malformed_mask_shape_fails_before_any_processing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.compile_probe(temp)
+            result = subprocess.run([str(binary), "malformed"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 42, result.stderr)
+            self.assertIn("cmd=2 type=6 domain=0 object=0 token=0 data=36 buffers=x0/a1/b1", result.stderr)
             self.assertIn("ACNH ngc:u command is not implemented", result.stderr)
             self.assertNotIn("PRIVATE_PLAYER_TEXT_SENTINEL", result.stderr)
 

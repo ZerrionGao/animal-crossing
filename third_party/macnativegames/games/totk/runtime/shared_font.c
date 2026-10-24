@@ -60,11 +60,17 @@ static size_t size(int type){return (size_t)rows[valid(type)].font_bytes;}
 #ifdef GAME_ACNH
 /* ACNH 的显式请求会检查字体类型，并确保共享字体只初始化一次。 */
 static void request_load_acnh(int type){(void)valid(type);}
-/* 仅提供已观察到的 en-US 首帧兼容顺序；其他语言的服务优先级尚未证实。 */
-static void log_shared_font_order_notice(void){fprintf(stderr,"[acnh] GetSharedFont uses the en-US compatibility order (types 0..5); this is not confirmed original-service priority\n");}
+/* en-US 仍是已观察到的 0..5。zh-Hans 使用公开的简体优先顺序 1,2,0,3,4,5，不是从原服务抓到的优先级。 */
+static void log_shared_font_order_notice(void){fprintf(stderr,"[acnh] GetSharedFont uses a compatibility order; this is not a captured original-service priority\n");}
+static uint64_t shared_font_language(const char *text){uint64_t value=0;memcpy(&value,text,strlen(text));return value;}
 static unsigned char get_shared_font(int *count,SharedFontData *out,int max,uint64_t language){
  if(!count)runtime_fail("shared font count pointer is null");
- if(language!=0x00000053552d6e65ull)runtime_fail("shared font order is not verified for this language");
+ static const int en_us_order[SHARED_FONT_COUNT]={0,1,2,3,4,5};
+ static const int zh_hans_order[SHARED_FONT_COUNT]={1,2,0,3,4,5};
+ const int *order=NULL;
+ if(language==shared_font_language("en-US"))order=en_us_order;
+ else if(language==shared_font_language("zh-Hans"))order=zh_hans_order;
+ else runtime_fail("shared font order is not verified for this language");
  if(max>0&&!out)runtime_fail("shared font data pointer is null");
  pthread_once(&shared_font_order_notice_once,log_shared_font_order_notice);
  pthread_once(&once,load);
@@ -72,7 +78,8 @@ static unsigned char get_shared_font(int *count,SharedFontData *out,int max,uint
  if(max<=0)return 1;
  int limit=max<SHARED_FONT_COUNT?max:SHARED_FONT_COUNT;
  for(int i=0;i<limit;i++){
-  memset(&out[i],0,sizeof out[i]);out[i].type=i;out[i].address=address(i);out[i].size=size(i);
+  int type=order[i];
+  memset(&out[i],0,sizeof out[i]);out[i].type=(uint32_t)type;out[i].address=address(type);out[i].size=size(type);
  }
  return 1;
 }

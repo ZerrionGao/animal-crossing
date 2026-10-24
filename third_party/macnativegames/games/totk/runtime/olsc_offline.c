@@ -1,4 +1,4 @@
-/* ACNH olsc:u 只支持本地离线初始化和查询未启用；未知命令失败，日志不输出请求正文。 */
+/* ACNH olsc:u 只支持本地离线初始化、读取和设置存档备份开关；未知命令失败，日志不输出用户标识。 */
 #include "ipc.h"
 #include "runtime.h"
 #include <stdio.h>
@@ -9,6 +9,8 @@ void runtime_account_uid(uint64_t out[2]);
 
 #ifdef GAME_ACNH
 typedef struct { atomic_int initialized; } OlscSession;
+/* SetSaveDataBackupSettingEnabled（命令 14）只在本进程记录，GetSaveDataBackupSetting（命令 13）读回；没有云备份。 */
+static atomic_int backup_enabled;
 
 static void *olsc_open(void) {
     OlscSession *state = calloc(1, sizeof *state);
@@ -62,8 +64,25 @@ static void olsc_handler(IpcSession *session, const IpcRequest *request, IpcResp
         runtime_account_uid(local_uid);
         if (requested_uid[0] != local_uid[0] || requested_uid[1] != local_uid[1])
             runtime_fail("ACNH olsc GetSetting UID is not the local user");
-        uint8_t disabled = 0;
-        ipc_out(response, &disabled, sizeof disabled);
+        uint8_t enabled = (uint8_t)atomic_load(&backup_enabled);
+        ipc_out(response, &enabled, sizeof enabled);
+        return;
+    }
+    case 14: {
+        if (!atomic_load(&state->initialized)) runtime_fail("ACNH olsc SetSettingEnabled before Initialize");
+        if (!root_domain_request(request, 0, 24))
+            runtime_fail("ACNH olsc SetSettingEnabled request shape is not supported");
+        uint8_t enabled;
+        uint64_t requested_uid[2], local_uid[2];
+        memcpy(&enabled, request->data, sizeof enabled);
+        memcpy(requested_uid, (const uint8_t *)request->data + 8, sizeof requested_uid);
+        runtime_account_uid(local_uid);
+        if (requested_uid[0] != local_uid[0] || requested_uid[1] != local_uid[1])
+            runtime_fail("ACNH olsc SetSettingEnabled UID is not the local user");
+        if (enabled > 1) runtime_fail("ACNH olsc SetSettingEnabled value is not a bool");
+        atomic_store(&backup_enabled, enabled);
+        fprintf(stderr, "[acnh-olsc] save data backup setting for the local user: %s (kept in this process only)\n",
+                enabled ? "enabled" : "disabled");
         return;
     }
     default:

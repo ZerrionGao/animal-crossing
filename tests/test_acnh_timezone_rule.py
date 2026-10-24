@@ -57,12 +57,11 @@ class AcnhTimezoneRuleTests(unittest.TestCase):
             result = subprocess.run([str(binary), "malformed-counts"], capture_output=True, text=True)
             self.assertEqual(result.returncode, 42, result.stderr)
 
-    def test_acnh_to_posix_rule_is_explicitly_unsupported(self):
+    def test_acnh_to_posix_rule_converts_local_time(self):
         with tempfile.TemporaryDirectory() as temp:
             binary = self.compile_probe(temp, "GAME_ACNH")
             result = subprocess.run([str(binary), "to-posix-rule"], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 42, result.stderr)
-            self.assertIn("ToPosixTime with timezone rule is not supported", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_timezone_symbols_are_not_overridden_outside_acnh(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -51,6 +51,17 @@ class SettingsRegionTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("cmd=4 type=6 domain=0", result.stderr)
 
+    def test_acnh_get_language_code_returns_zh_hans(self):
+        with tempfile.TemporaryDirectory() as temp:
+            binary = self.compile_probe(temp, "GAME_ACNH")
+            result = subprocess.run([str(binary), "language"], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(
+                "[acnh-settings] request service=set cmd=0 type=6 domain=0 object=0 token=0 data=8 "
+                "buffers=x0/a0/b0/w0/c0 handles=pid:0,copy:0,move:0",
+                result.stderr,
+            )
+
     def test_acnh_other_commands_fail(self):
         with tempfile.TemporaryDirectory() as temp:
             binary = self.compile_probe(temp, "GAME_ACNH")

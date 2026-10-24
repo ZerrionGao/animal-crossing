@@ -85,6 +85,15 @@ int main(int argc, char **argv) {
         assert(listed[i].type == (uint32_t)i && listed[i].reserved == 0);
         assert(listed[i].address == addresses[i] && listed[i].size == size(i));
     }
+    uint64_t zh_hans = 0;
+    memcpy(&zh_hans, "zh-Hans", 7);
+    static const int zh_order[6] = {1, 2, 0, 3, 4, 5};
+    assert(get_fonts(&count, listed, 6, zh_hans) && count == 6);
+    for (int i = 0; i < 6; i++) {
+        int type = zh_order[i];
+        assert(listed[i].type == (uint32_t)type && listed[i].reserved == 0);
+        assert(listed[i].address == addresses[type] && listed[i].size == size(type));
+    }
 
     fail_armed = 1;
     if (!setjmp(fail_env)) { (void)load_state(6); assert(!"out-of-range font type must fail"); }

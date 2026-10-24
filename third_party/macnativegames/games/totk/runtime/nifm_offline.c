@@ -152,6 +152,25 @@ static void nifm_request_handler(IpcSession *session, const IpcRequest *request,
         fprintf(stderr, "[acnh-net] nifm IRequest GetSystemEventReadableHandles: returned two readable handles\n");
         return;
     }
+    /* GetAppletInfo（命令 21）：联网失败后 HandleNetworkRequestErrorResult 借它找处理错误的系统界面
+       （例如岛屿备份）。宿主没有该界面，返回请求本身的离线结果；原 SDK 收到失败即返回“未解决”，不中止。 */
+    if (request->cmd == 21) {
+        if (request->type != 6 || !request->domain || request->domain_token != 0 ||
+            request->data_size != 4 || !request->data || request->has_pid || request->ncopy ||
+            request->nmove || request->nx || request->na || request->nb != 1 || request->nw || request->nc) {
+            fprintf(stderr,
+                    "[acnh-net] nifm IRequest GetAppletInfo rejected shape: type=%u domain=%d object=%u token=%u data=%u pid=%d handles=%u/%u buffers=x%u/a%u/b%u/w%u/c%u\n",
+                    request->type, request->domain, request->object_id, request->domain_token,
+                    request->data_size, request->has_pid, request->ncopy, request->nmove,
+                    request->nx, request->na, request->nb, request->nw, request->nc);
+            ipc_unimplemented(session, request);
+        }
+        NifmRequestState *state = session->state;
+        if (!state) runtime_fail("NIFM IRequest missing state");
+        response->result = atomic_load_explicit(&state->submitted, memory_order_acquire) ? 0x8986eu : 0x26e6eu;
+        fprintf(stderr, "[acnh-net] nifm IRequest GetAppletInfo: no system applet offline (0x%x)\n", response->result);
+        return;
+    }
     fprintf(stderr,
             "[acnh-net] nifm IRequest unsupported cmd=%u type=%u domain=%d object=%u token=%u data=%u pid=%d handles=%u/%u buffers=x%u/a%u/b%u/w%u/c%u\n",
             request->cmd, request->type, request->domain, request->object_id,

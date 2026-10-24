@@ -364,14 +364,53 @@ static uint32_t acnh_to_calendar_with_rule(CalendarTime *calendar, CalendarAddit
     return 0;
 }
 
+/* 把日历字段当成 UTC 得到“本地钟面秒”。timegm 会把 2 月 31 日这类日期进位，进位后的字段对不上就不是合法本地时间。 */
+static int naive_local_seconds(const CalendarTime *calendar, int64_t *out) {
+    if (calendar->month < 1 || calendar->month > 12 || calendar->day < 1 || calendar->day > 31 ||
+        calendar->hour < 0 || calendar->hour > 23 || calendar->minute < 0 || calendar->minute > 59 ||
+        calendar->second < 0 || calendar->second > 59) return 0;
+    struct tm tm = {0};
+    tm.tm_year = calendar->year - 1900; tm.tm_mon = calendar->month - 1; tm.tm_mday = calendar->day;
+    tm.tm_hour = calendar->hour; tm.tm_min = calendar->minute; tm.tm_sec = calendar->second;
+    time_t naive = timegm(&tm);
+    struct tm back;
+    if (!gmtime_r(&naive, &back)) return 0;
+    if (back.tm_year + 1900 != calendar->year || back.tm_mon + 1 != calendar->month || back.tm_mday != calendar->day ||
+        back.tm_hour != calendar->hour || back.tm_min != calendar->minute || back.tm_sec != calendar->second) return 0;
+    *out = (int64_t)naive;
+    return 1;
+}
+
+static void insert_posix(int64_t *found, int *count, int64_t value) {
+    for (int i = 0; i < *count; i++) if (found[i] == value) return;
+    if (*count >= 4) return;
+    int i = *count;
+    while (i > 0 && found[i - 1] > value) { found[i] = found[i - 1]; i--; }
+    found[i] = value;
+    (*count)++;
+}
+
+/* 同一本地时间在夏令时回拨时对应两个时间戳，在拨快的空档里一个都没有。空档返回 0 个，不中止进程。 */
 static uint32_t acnh_to_posix_with_rule(int *out_count, int64_t *out_array, int max_count,
                                          const CalendarTime *calendar, const AcnhTimeZoneRule *rule) {
-    (void)out_count;
-    (void)out_array;
-    (void)max_count;
-    (void)calendar;
-    (void)rule;
-    runtime_fail("ACNH ToPosixTime with timezone rule is not supported by this HLE");
+    if (!out_count || !calendar || max_count < 0 || (max_count > 0 && !out_array))
+        runtime_fail("ACNH ToPosixTime arguments");
+    int64_t naive = 0;
+    if (!naive_local_seconds(calendar, &naive)) { *out_count = 0; return 0; }
+    CFTimeZoneRef zone = acnh_timezone_from_rule(rule);
+    int64_t found[4]; int nfound = 0;
+    for (int64_t offset = -14 * 3600; offset <= 14 * 3600; offset += 60) {
+        int64_t posix = naive - offset;
+        CFAbsoluteTime absolute = (CFAbsoluteTime)posix - kCFAbsoluteTimeIntervalSince1970;
+        CFTimeInterval actual = CFTimeZoneGetSecondsFromGMT(zone, absolute);
+        if (actual < (CFTimeInterval)INT32_MIN || actual > (CFTimeInterval)INT32_MAX) continue;
+        if (posix + (int64_t)actual == naive) insert_posix(found, &nfound, posix);
+    }
+    CFRelease(zone);
+    int write = nfound < max_count ? nfound : max_count;
+    if (write > 0) memcpy(out_array, found, (size_t)write * sizeof *found);
+    *out_count = write;
+    return 0;
 }
 #endif
 static CalendarTime to_calendar_utc(const int64_t *posix) { CalendarTime c; fill_calendar(&c, NULL, posix ? *posix : 0, 0); return c; }

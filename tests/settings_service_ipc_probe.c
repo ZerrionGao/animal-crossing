@@ -102,8 +102,19 @@ int main(int argc, char **argv) {
     uint32_t settings = open_settings(message);
 
 #ifdef GAME_ACNH
-    if (strcmp(mode, "unsupported") == 0) {
+    if (strcmp(mode, "language") == 0) {
         make_cmif(message, 0, NULL, 0);
+        message[0] = 6;
+        send_frame(settings, message);
+        uint64_t expected_language = 0;
+        memcpy(&expected_language, "zh-Hans", 7);
+        uint8_t *payload = (uint8_t *)message + 16;
+        assert(((uint32_t *)payload)[2] == 0);
+        assert(*(uint64_t *)(payload + 16) == expected_language);
+        return 0;
+    }
+    if (strcmp(mode, "unsupported") == 0) {
+        make_cmif(message, 1, NULL, 0);
         send_frame(settings, message);
         assert(!"unobserved ACNH settings command must fail");
     }

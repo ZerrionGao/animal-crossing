@@ -215,7 +215,7 @@ static void front_sync_drawable(void){
 static _Atomic int acnhCloseLogged;
 static void acnh_request_exit(void) {
  int queued=runtime_oe_request_exit_notification();
- if(!atomic_exchange(&acnhCloseLogged,1))fprintf(stderr,"[totk] ACNH exit requested; sent notification message 4%s; keeping the window open (guest exit is not implemented)\n",queued?"":" when queue space is available");
+ if(!atomic_exchange(&acnhCloseLogged,1))fprintf(stderr,"[totk] ACNH exit requested; sent notification message 4%s; the process ends outside the exit request handling section once save data is idle\n",queued?"":" when queue space is available");
 }
 #endif
 @implementation TOTKWindowDelegate
@@ -265,9 +265,15 @@ void runtime_front_run(void(*callback)(void)){
   bootStartNS=runtime_now_ns();
   [NSApplication sharedApplication];[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
   runtime_gamepad_start();
-  /* Default window: the docked output size, 1920x1080, scaled down (16:9 kept) when the screen's visible area is smaller. */
+  /* Default window: the docked output size, 1920x1080, scaled down (16:9 kept) when the screen's visible area is smaller.
+     ACNH starts at 1280x720 points so a 2x display does not open a 3840x2160 window. The game picture stays 1920x1080. */
   /* TOTK_WINDOW_SIZE=<w>x<h> (test scripts only, e.g. the 2K output test; the desktop launcher never sets it): another starting size. */
-  NSRect vis=NSScreen.mainScreen?NSScreen.mainScreen.visibleFrame:NSMakeRect(0,0,1920,1080+28);CGFloat ww=1920,wh=1080;
+  NSRect vis=NSScreen.mainScreen?NSScreen.mainScreen.visibleFrame:NSMakeRect(0,0,1920,1080+28);
+#ifdef GAME_ACNH
+  CGFloat ww=1280,wh=720;
+#else
+  CGFloat ww=1920,wh=1080;
+#endif
   {const char *e=getenv("TOTK_WINDOW_SIZE");int w=0,h=0;if(e&&sscanf(e,"%dx%d",&w,&h)==2&&w>=320&&h>=180&&w<=8192&&h<=8192){ww=w;wh=h;}}
   CGFloat k=fmin(1,fmin(vis.size.width/ww,(vis.size.height-28)/wh));ww=floor(ww*k);wh=floor(wh*k);
   window=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,ww,wh) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
