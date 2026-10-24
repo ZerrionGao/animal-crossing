@@ -288,7 +288,19 @@ NVN(nvnBufferGetAddress, NVNbufferAddress, const NVNbuffer *b){return (uintptr_t
 NVN(nvnBufferGetMemoryPool, NVNmemoryPool *, const NVNbuffer *b){return (void *)((const totk_buffer *)b)->pool;}
 NVN(nvnBufferGetMemoryOffset, ptrdiff_t, const NVNbuffer *b){return ((const totk_buffer *)b)->off;}
 NVN(nvnBufferGetSize, size_t, const NVNbuffer *b){return ((const totk_buffer *)b)->size;}
-NVN(nvnBufferFlushMappedRange, void, const NVNbuffer *b,ptrdiff_t off,size_t size){const totk_buffer *v=(const void *)b;if(off<0||(uint64_t)off>v->size||size>v->size-(uint64_t)off)die("invalid NVN buffer flush range");dm_guest_write_prepare((uint8_t *)h_nvnBufferMap(b)+off,size);}
+NVN(nvnBufferFlushMappedRange, void, const NVNbuffer *b,ptrdiff_t off,size_t size){const totk_buffer *v=(const void *)b;
+#ifdef GAME_ACNH
+ /* 确认肤色时的刷新区间会超出已记录的缓冲。主机只刷新仍落在缓冲和内存池里的那一段，并记下被截断的长度。 */
+ if(v->magic!=MAGIC('B','U','F',0)||off<0||(uint64_t)off>v->size){static int n;if(n++<4){const uint32_t *w=(const uint32_t *)v;LOG("ACNH 缓冲刷新被忽略 magic=%#x off=%lld size=%llu buffer=%llu words=%08x %08x %08x %08x %08x %08x %08x %08x",v->magic,(long long)off,(unsigned long long)size,(unsigned long long)v->size,w[0],w[1],w[2],w[3],w[4],w[5],w[6],w[7]);}return;}
+ uint64_t keep=size<v->size-(uint64_t)off?size:v->size-(uint64_t)off;
+ if(v->pool&&v->pool->magic==MAGIC('P','O','O','L')&&v->off>=0&&(uint64_t)v->off<=v->pool->size){uint64_t room=v->pool->size-(uint64_t)v->off;if((uint64_t)off>=room)keep=0;else if(keep>room-(uint64_t)off)keep=room-(uint64_t)off;}
+ if(keep!=size){static int n;if(n++<8)LOG("ACNH 缓冲刷新截断 off=%lld requested=%llu kept=%llu buffer=%llu",(long long)off,(unsigned long long)size,(unsigned long long)keep,(unsigned long long)v->size);}
+ if(!keep||!h_nvnBufferMap(b))return;
+ dm_guest_write_prepare((uint8_t *)h_nvnBufferMap(b)+off,(size_t)keep);
+#else
+ if(off<0||(uint64_t)off>v->size||size>v->size-(uint64_t)off)die("invalid NVN buffer flush range");dm_guest_write_prepare((uint8_t *)h_nvnBufferMap(b)+off,size);
+#endif
+}
 
 // ---------- 描述符池 ----------
 // ---------- Descriptor pools ----------

@@ -252,10 +252,20 @@ NSString *totk_rt_variant(NSString *shader, int stage, const uint8_t *control, c
     // Called for the game's actual shader bytes, including when a prepared
     // variant already exists. Old cache files alone never become observed keys.
     totk_shader_observed_note(observed_keys_state(), shader);
+#ifdef GAME_ACNH
+    /* 顶点着色器的翻译随深度模式变：近=-w 时补 z=(z+w)/2。缺省深度模式改成近=-w 之前翻的旧条目没有这步，索引又不分，
+       深度预通道和颜色通道一个换算一个没换，颜色通道按 EQUAL 比深度，整块物体被丢掉只剩黑。
+       深度模式记进变体名和索引，旧条目不再命中，也不会和预热按旧名装进来的着色器混用。 */
+    BOOL minus_w = stage == 0 && totk_depth_near_minus_w();
+    if (minus_w) { NSMutableDictionary *a = [NSMutableDictionary dictionaryWithDictionary:answers ?: @{}]; a[@"depth_minus_w"] = @YES; answers = a; }
+#endif
     NSMutableArray *vs = variants_of(shader);
     for (NSUInteger i = 0; i < vs.count; i++) {
         NSDictionary *v = vs[i];
         if (!deps_match(v[@"deps"], answers)) continue;
+#ifdef GAME_ACNH
+        if (stage == 0 && [v[@"depth_minus_w"] boolValue] != minus_w) continue;
+#endif
         NSString *found = v[@"variant"];
         if (!g_msl_checked) g_msl_checked = [NSMutableSet set];
         BOOL checked = [g_msl_checked containsObject:found];
@@ -318,7 +328,11 @@ NSString *totk_rt_variant(NSString *shader, int stage, const uint8_t *control, c
     NSData *jd = [NSData dataWithContentsOfFile:[totk_rt_dir() stringByAppendingFormat:@"/%@_b.json", variant]];
     NSDictionary *refl = jd ? [NSJSONSerialization JSONObjectWithData:jd options:0 error:nil] : nil;
     if (![refl isKindOfClass:[NSDictionary class]]) die("shader %s: reflection missing", variant.UTF8String);
+#ifdef GAME_ACNH
+    [vs addObject:@{@"variant": variant, @"deps": refl[@"deps"] ?: @{}, @"depth_minus_w": @(minus_w)}];
+#else
     [vs addObject:@{@"variant": variant, @"deps": refl[@"deps"] ?: @{}}];
+#endif
     [g_msl_checked addObject:variant];
     [[json_string(vs) dataUsingEncoding:NSUTF8StringEncoding] writeToFile:index_path(shader) atomically:YES];
     g_translated++;

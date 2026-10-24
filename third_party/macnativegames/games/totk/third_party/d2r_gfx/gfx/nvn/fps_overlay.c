@@ -37,8 +37,12 @@ static const Glyph FONT[] = {
     {' ', {0, 0, 0, 0, 0, 0, 0}},
 };
 
-/* Key 1 cycles all -> minimal (FPS only) -> off -> all. */
+/* Key 1 cycles all -> minimal (FPS only) -> off -> all. ACNH does not bind that key, so it starts at FPS only. */
+#ifdef GAME_ACNH
+static _Atomic int g_hud_mode = HUD_MODE_MINIMAL;
+#else
 static _Atomic int g_hud_mode = HUD_MODE_ALL;
+#endif
 int fps_overlay_hud_mode(void) { return atomic_load_explicit(&g_hud_mode, memory_order_relaxed); }
 int fps_overlay_hints_enabled(void) { return fps_overlay_hud_mode() != HUD_MODE_OFF; }
 int fps_overlay_full_hud(void) { return fps_overlay_hud_mode() == HUD_MODE_ALL; }

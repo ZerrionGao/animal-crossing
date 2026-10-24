@@ -2,7 +2,7 @@
 """Build an unsigned, sideloadable iPhone/iPad IPA from a prepared TOTK work tree."""
 import argparse, json, os, shutil, subprocess, sys
 from pathlib import Path
-from compile_seed import METAL_FLAGS
+from compile_seed import ACNH_POLICY, policy as compile_policy
 from xcode_dir import developer_dir
 
 def run(args, cwd, log, env):
@@ -32,7 +32,9 @@ def main():
     p.add_argument('--tree',type=Path,required=True);p.add_argument('--out',type=Path,required=True)
     p.add_argument('--version',choices=['v0','v112','v121','v143'],required=True);p.add_argument('--logs',type=Path,required=True)
     p.add_argument('--app-name',default='Tears of the Kingdom');p.add_argument('--bundle-id',default='org.macnativegames.totk')
+    p.add_argument('--acnh-normalizer',type=Path,help='absolute path to the ACNH MSL policy CLI')
     a=p.parse_args(); tree=a.tree.resolve(); ios=tree/'ios';gen=ios/'Gen';logs=a.logs.resolve(); out=a.out.resolve()
+    normalizer,metal_flags=compile_policy(a.acnh_normalizer)
     if out.suffix.lower()!='.ipa': raise RuntimeError('iOS output path must end in .ipa')
     env=dict(os.environ,DEVELOPER_DIR=developer_dir())
     sdk=subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'],env=env,text=True).strip()
@@ -73,13 +75,16 @@ def main():
         cached=json.loads(cached_manifest.read_text())
         reuse_seed=(cached.get('ios_source_manifest_sha256')==source_manifest_hash and
                     cached.get('ios_metallibs')==expected_metallibs and
-                    cached.get('ios_metal_flags')==' '.join(METAL_FLAGS) and   # e.g. not the old fast-math libraries
+                    cached.get('ios_metal_flags')==' '.join(metal_flags) and
+                    (cached.get('shader_policy')==ACNH_POLICY if normalizer else not cached.get('shader_policy')) and
                     all((seed/(name.removesuffix('.metal')+'.metallib')).is_file()
                         for name in json.loads((seed_src/'seed-manifest.json').read_text())['files'] if name.endswith('_b.metal')))
     if not reuse_seed:
         if seed.exists(): shutil.rmtree(seed)
         copy_tree(seed_src,seed)
-        run([sys.executable,ios/'tools/compile_seed.py',seed,'iphoneos'],tree,logs/'ios-shaders.log',env)
+        compile_cmd=[sys.executable,ios/'tools/compile_seed.py',seed,'iphoneos']
+        if normalizer: compile_cmd += ['--acnh-normalizer',normalizer]
+        run(compile_cmd,tree,logs/'ios-shaders.log',env)
     seed_manifest=json.loads((seed/'seed-manifest.json').read_text())
     seed_manifest['ios_source_manifest_sha256']=source_manifest_hash
     (seed/'seed-manifest.json').write_text(json.dumps(seed_manifest,indent=2)+'\n')

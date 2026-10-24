@@ -23,6 +23,9 @@ static NSString *totk_seed_hash(NSData *data) {
 static NSString *totk_seed_fingerprint(NSDictionary *m, NSArray<NSString *> *names) {
     NSDictionary *files = m[@"files"];
     NSMutableString *s = [NSMutableString stringWithFormat:@"chain %@\nschema %@\nshaders %@\n", m[@"chain"], m[@"schema"], m[@"shaders"]];
+#ifdef GAME_ACNH
+    [s appendFormat:@"shader_policy %@\n", m[@"shader_policy"]];
+#endif
     for (NSString *name in names) [s appendFormat:@"%@ %@\n", name, files[name]];
     return totk_seed_hash([s dataUsingEncoding:NSUTF8StringEncoding]);
 }
@@ -79,6 +82,9 @@ static NSDictionary *totk_seed_import_into(NSString *source, NSString *cache, NS
     if (![m isKindOfClass:NSDictionary.class] || ![m[@"chain"] isEqual:@DMSH_CHAIN] ||
         ![m[@"schema"] isEqual:@1] || ![m[@"shaders"] isKindOfClass:NSNumber.class] || [m[@"shaders"] unsignedLongLongValue] == 0 ||
         ![m[@"files"] isKindOfClass:NSDictionary.class] || ![m[@"files"] count]) problem = @"Startup shader seed identity is invalid";
+#ifdef GAME_ACNH
+    if (!problem && ![m[@"shader_policy"] isEqual:@"acnh-metal-v1"]) problem = @"ACNH startup shader seed policy is missing or unsupported";
+#endif
     if (problem) goto fail;
     {
         NSDictionary *files = m[@"files"];
@@ -91,7 +97,10 @@ static NSDictionary *totk_seed_import_into(NSString *source, NSString *cache, NS
         // shader-keys.json (the warm-up scope, PR #84) is checked with the rest but read from the seed folder itself
         // (totk_shader_rt.m shader_scope), so it is never copied into the writable cache.
         NSString *const scopeName = @"shader-keys.json";
-        BOOL installed = [old isKindOfClass:NSDictionary.class] && [old[@"files_sha256"] isEqual:fingerprint];   // receipts from before 2026-10-18 (manifest_sha256) are checked once more
+        BOOL installed = [old isKindOfClass:NSDictionary.class] && [old[@"files_sha256"] isEqual:fingerprint];   // old receipts are checked once more
+#ifdef GAME_ACNH
+        installed = installed && [old[@"shader_policy"] isEqual:m[@"shader_policy"]];
+#endif
         BOOL sealed = marker && totk_seed_sealed(source);
         for (id name in names) {
             if (![name isKindOfClass:NSString.class] || ![safe numberOfMatchesInString:name options:0 range:NSMakeRange(0, [name length])]) {
@@ -113,10 +122,25 @@ static NSDictionary *totk_seed_import_into(NSString *source, NSString *cache, NS
             }
             if (totk_seed_progress && (++checked % 256 == 0 || checked == names.count)) totk_seed_progress(0, checked, names.count);
         }
+#ifdef GAME_ACNH
+        if (marker && !installed) {
+            NSRegularExpression *metallib = [NSRegularExpression regularExpressionWithPattern:
+                @"^[0-9a-f]{64}-[0-9a-f]{12}_b\\.metallib$" options:0 error:nil];
+            for (NSString *name in [fm contentsOfDirectoryAtPath:cache error:nil] ?: @[]) {
+                if ([metallib numberOfMatchesInString:name options:0 range:NSMakeRange(0, name.length)])
+                    [fm removeItemAtPath:[cache stringByAppendingPathComponent:name] error:nil];
+            }
+            [fm removeItemAtPath:marker error:nil];
+        }
+#endif
         if (![fm createDirectoryAtPath:cache withIntermediateDirectories:YES attributes:nil error:error]) return nil;
         NSMutableSet<NSString *> *keep = [NSMutableSet setWithArray:names]; [keep removeObject:scopeName];
         if (marker && totk_seed_clone_folder(source, cache, keep)) {
-            NSData *receipt = [NSJSONSerialization dataWithJSONObject:@{@"files_sha256": fingerprint} options:0 error:error];
+            NSMutableDictionary *receiptObject = [@{@"files_sha256": fingerprint} mutableCopy];
+#ifdef GAME_ACNH
+            receiptObject[@"shader_policy"] = m[@"shader_policy"];
+#endif
+            NSData *receipt = [NSJSONSerialization dataWithJSONObject:receiptObject options:0 error:error];
             if (!receipt || ![receipt writeToFile:marker options:NSDataWritingAtomic error:error]) return nil;
             if (totk_seed_progress) totk_seed_progress(1, names.count, names.count);
             return @{@"available": @YES, @"shaders": m[@"shaders"], @"imported_files": @(keep.count), @"cloned_folder": @YES};
@@ -181,7 +205,11 @@ static NSDictionary *totk_seed_import_into(NSString *source, NSString *cache, NS
             if (![data writeToFile:target options:NSDataWritingAtomic error:error]) return nil;
             imported++;
         }
-        NSData *receipt = [NSJSONSerialization dataWithJSONObject:@{@"files_sha256": fingerprint} options:0 error:error];
+        NSMutableDictionary *receiptObject = [@{@"files_sha256": fingerprint} mutableCopy];
+#ifdef GAME_ACNH
+        receiptObject[@"shader_policy"] = m[@"shader_policy"];
+#endif
+        NSData *receipt = [NSJSONSerialization dataWithJSONObject:receiptObject options:0 error:error];
         if (marker && (!receipt || ![receipt writeToFile:marker options:NSDataWritingAtomic error:error])) return nil;
         return @{@"available": @YES, @"shaders": m[@"shaders"], @"imported_files": @(imported),
                  @"clone_errno": @(totk_seed_clone_errno), @"folder_skipped": totk_seed_folder_skipped ?: @""};

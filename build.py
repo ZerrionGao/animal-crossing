@@ -148,7 +148,7 @@ def verify(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('step', choices=('prepare', 'rewrite', 'verify', 'runtime', 'probe', 'boot'))
+    parser.add_argument('step', choices=('prepare', 'rewrite', 'verify', 'runtime', 'probe', 'boot', 'package'))
     parser.add_argument('--base', type=Path, default=ROOT / 'Animal Crossing New Horizons.xci')
     parser.add_argument('--update', type=Path, default=ROOT / 'Animal Crossing New Horizons v3.0.0.nsp')
     parser.add_argument('--keys', action='append', type=Path)
@@ -161,7 +161,7 @@ def main():
     if args.step in ('prepare', 'rewrite', 'verify'):
         globals()[args.step](args)
     else:
-        if args.step == 'boot':
+        if args.step in ('boot', 'package'):
             validate_exefs()
             validate_romfs()
             validate_fonts()
@@ -171,7 +171,8 @@ def main():
         if args.step == 'boot':
             environment = {key: value for key, value in os.environ.items()
                            if not key.startswith(('TOTK_', 'DM_'))}
-        execute(['make', '-C', ROOT / 'games/acnh', args.step], environment=environment)
+        make_step = 'app' if args.step == 'package' else args.step
+        execute(['make', '-C', ROOT / 'games/acnh', make_step], environment=environment)
     return 0
 
 

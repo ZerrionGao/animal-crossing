@@ -4876,21 +4876,59 @@ static MTLCompileOptions *totk_precise_opts(void) {
     dispatch_once(&once, ^{
         MTLCompileOptions *x = [MTLCompileOptions new];
         if (@available(macOS 15.0, *)) x.mathMode = MTLMathModeSafe; else x.fastMathEnabled = NO;
+#ifdef GAME_ACNH
+        /* 深度预通道和颜色通道是两个顶点着色器，颜色通道按 EQUAL 比深度；不开这项 [[invariant]] 会被编译器忽略，
+           两边位置差一点，整块物体在颜色通道全被丢掉，只剩清屏的黑色。 */
+        x.preserveInvariance = YES;
+#endif
         /* TOTK_FAST_MATH=1 (measurement only): fast math for every translated shader. Known to break the tile-light vertex
-           shader's integer-division idiom, so pictures from such runs are not evidence of correctness. */
+           shader's integer-division idiom, so pictures from such runs are not evidence of correctness. ACNH policy is fixed. */
+#ifndef GAME_ACNH
         if (getenv("TOTK_FAST_MATH") && atoi(getenv("TOTK_FAST_MATH"))) { if (@available(macOS 15.0, *)) x.mathMode = MTLMathModeFast; else x.fastMathEnabled = YES; MLOG("【实验】TOTK_FAST_MATH=1：着色器用快速数学"); }
+#endif
         o = x;
     });
     return o;
 }
+#ifdef GAME_ACNH
+#include "acnh_msl_normalize.h"
+static NSString *acnh_normalized_msl(NSString *src, NSError **error) {
+    if (!src) return nil;
+    NSData *source_data = [src dataUsingEncoding:NSUTF8StringEncoding];
+    const char *utf8 = source_data.bytes;
+    if (!source_data || !utf8 || memchr(utf8, '\0', source_data.length)) {
+        if (error) *error = [NSError errorWithDomain:@"MacNativeGames.ACNHShaderPolicy" code:1
+            userInfo:@{NSLocalizedDescriptionKey: @"ACNH MSL is not valid UTF-8"}];
+        return nil;
+    }
+    char *normalized = NULL, message[192] = {0}; size_t normalized_length = 0;
+    acnh_msl_result result = acnh_msl_normalize(utf8, source_data.length, &normalized, &normalized_length, message, sizeof message);
+    if (result == ACNH_MSL_ERROR) {
+        if (error) *error = [NSError errorWithDomain:@"MacNativeGames.ACNHShaderPolicy" code:2
+            userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithUTF8String:message] ?: @"ACNH MSL normalization failed"}];
+        return nil;
+    }
+    NSString *out = [[NSString alloc] initWithBytes:normalized length:normalized_length encoding:NSUTF8StringEncoding];
+    free(normalized);
+    if (!out && error) *error = [NSError errorWithDomain:@"MacNativeGames.ACNHShaderPolicy" code:3
+        userInfo:@{NSLocalizedDescriptionKey: @"Normalized ACNH MSL is not valid UTF-8"}];
+    return out;
+}
+#endif
 /* Compile translated MSL with the precise options. The system compiler service (MTLCompilerService) can be stopped under
    memory pressure in the middle of a compile (iPad, 2026-10-18: "Compilation failed due to an interrupted connection:
    XPC_ERROR_CONNECTION_INTERRUPTED" while the shader warm-up was running); it restarts on the next request, so such a
    failure is retried instead of being taken as a broken shader. */
 static id<MTLLibrary> totk_msl_library(NSString *src, NSError **err) {
     NSError *e = nil;
+#ifdef GAME_ACNH
+    NSString *layer_src = acnh_normalized_msl(src, &e);
+    if (!layer_src) { if (err) *err = e; return nil; }
+#else
+    NSString *layer_src = src;
+#endif
     for (int attempt = 1;; attempt++) {
-        id<MTLLibrary> lib = [g_dev newLibraryWithSource:src options:totk_precise_opts() error:&e];
+        id<MTLLibrary> lib = [g_dev newLibraryWithSource:layer_src options:totk_precise_opts() error:&e];
         BOOL interrupted = !lib && [e.localizedDescription containsString:@"XPC_ERROR_CONNECTION_INTERRUPTED"];
         if (lib || !interrupted || attempt == 4) { if (err) *err = e; return lib; }
         MLOG("【红】着色器编译服务连接中断（第 %d 次），%d ms 后重试", attempt, attempt * 100);
@@ -4969,6 +5007,9 @@ static _Atomic uint64_t g_rt_prebuilt, g_rt_compiled;   // TOTK: translated vari
    MSL, so only an exact match is used. Metal's own cache of libraries compiled here does not follow the app to a folder
    whose path has another length (measured: a full 4.5-minute warm-up again); these files move with the app. */
 static NSString *shader_lib_prebuilt_path(NSData *src) {
+#ifdef GAME_ACNH
+    (void)src; return nil;   // 按原始 MSL 哈希命名，未经层号正规化和不变性选项编译
+#endif
     if (getenv("TOTK_FAST_MATH") && atoi(getenv("TOTK_FAST_MATH"))) return nil;   // built with safe math (totk_precise_opts)
     static NSString *dir; static dispatch_once_t once; dispatch_once(&once, ^{ dir = exe_rel("shader-libs"); });
     unsigned char md[CC_SHA256_DIGEST_LENGTH]; CC_SHA256(src.bytes, (CC_LONG)src.length, md);
@@ -5118,7 +5159,14 @@ static __unsafe_unretained NvProg *prog_get(const prog_t *cp) {   // 只在提�
         NSString *variant=totk_rt_variant(@(key),st,control,(const uint8_t *)(uintptr_t)p->sd[i].data,rt_answers(st),rt_local(control,st));
         if(!variant){o->missing|=1<<st;o->ctl[st]=control;o->code[st]=(const uint8_t *)(uintptr_t)p->sd[i].data;o->key[st]=@(key);continue;}   // iOS: not translated yet, its draws are skipped
         NvShader *sh=shader_get([variant stringByAppendingString:@"_b"],st);
-        if(!sh)MDIE("TOTK shader translation/reflection unavailable for %s",variant.UTF8String);
+        if(!sh){
+#ifdef GAME_ACNH
+            /* 翻译或正规化失败时跳过用到这份程序的绘制。中止进程会把后面的存档流程一起带走。 */
+            o->missing|=1<<st;o->ctl[st]=control;o->code[st]=(const uint8_t *)(uintptr_t)p->sd[i].data;o->key[st]=@(key);continue;
+#else
+            MDIE("TOTK shader translation/reflection unavailable for %s",variant.UTF8String);
+#endif
+        }
         o->sh[st]=sh; o->ctl[st]=control; o->code[st]=(const uint8_t *)(uintptr_t)p->sd[i].data; o->key[st]=@(key);
         o->sig[st]=stage_sig(st); o->alt[st]=[NSMutableDictionary dictionaryWithObject:sh forKey:@(o->sig[st])];
     }
@@ -5716,7 +5764,13 @@ static int prog_fit(NvProg *pr) {
             NSString *variant = totk_rt_variant(pr->key[st], st, pr->ctl[st], pr->code[st], rt_answers(st), nil);
             if (!variant) { pr->miss_sig[st] = sg; pr->miss_has[st] = 1; return -1; }   // iOS: this signature's variant is not translated yet
             v = shader_get([variant stringByAppendingString:@"_b"], st);
-            if (!v) MDIE("TOTK shader translation/reflection unavailable for %s", variant.UTF8String);
+            if (!v) {
+#ifdef GAME_ACNH
+                pr->miss_sig[st] = sg; pr->miss_has[st] = 1; return -1;
+#else
+                MDIE("TOTK shader translation/reflection unavailable for %s", variant.UTF8String);
+#endif
+            }
             pr->alt[st][@(sg)] = v;
         }
         if (v != pr->sh[st]) changed = 1;
@@ -6809,16 +6863,23 @@ static NSMapTable<id, id<MTLTexture>> *g_type_views;
 /* Cached views retain their parent allocation. Evict after that allocation has been removed from
    residency by the completed-fence retirement path; a strong cache must not keep every upload alive.
    Caller cadence is bounded, and deferral also protects views used by the most recent submission. */
+static void type_view_drop(id<MTLTexture> v) {
+    if (!v) return;
+    /* 自建的数组副本没有父贴图，退役时要移出驻留集；普通视图只放引用。都等用过它的提交完成。 */
+    if (v.parentTexture) defer_obj_unref(v);
+    else defer_obj_release(v);
+}
 static void type_views_sweep_retired(void) {
     if (g_sub_serial & 63) return;
     registry_lock();
     pthread_mutex_lock(&g_res_mu);
     for (id key in g_type_views.keyEnumerator.allObjects) {
-        id<MTLTexture> view = [g_type_views objectForKey:key], base = view;
-        while (base.parentTexture) base = base.parentTexture;
-        id<MTLResource> allocation = base.buffer ?: (id<MTLResource>)base;
+        id<MTLTexture> src = (id<MTLTexture>)key, root = src;
+        while (root.parentTexture) root = root.parentTexture;
+        id<MTLResource> allocation = root.buffer ?: (id<MTLResource>)root;
         if ([g_res_objects containsObject:allocation]) continue;
-        defer_obj_unref(view); defer_obj_unref(key);
+        type_view_drop([g_type_views objectForKey:key]);
+        defer_obj_unref(key);
         [g_type_views removeObjectForKey:key]; g_type_retired_views++;
     }
     pthread_mutex_unlock(&g_res_mu);
@@ -6828,11 +6889,12 @@ static id<MTLTexture> tex_type_view(id<MTLTexture> base, MTLTextureType want) {
     if (!g_type_views) g_type_views = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality valueOptions:NSPointerFunctionsStrongMemory];
     id<MTLTexture> v = [g_type_views objectForKey:base];
     if (v && v.textureType == want) return v;
-    if (v) defer_obj_unref(v);   // another type requested: earlier encoded draws may still use the old view
+    if (v) type_view_drop(v);   // 换类型：已编码的绘制仍可能用着旧的
+    /* 单层视图和原贴图共用存储，通道重排也跟着走。越界层号由着色器夹回第 0 层，不再复制出只有两层的私有副本。 */
     v = [base newTextureViewWithPixelFormat:base.pixelFormat textureType:want levels:NSMakeRange(0, base.mipmapLevelCount) slices:NSMakeRange(0, 1)];
     if (!v) { RED_ONCE(46, "贴图类型视图建不出（%lu → %lu）", (unsigned long)base.textureType, (unsigned long)want); return nil; }
     [g_type_views setObject:v forKey:base];
-    static int said; if (said++ < 3) MLOG("texture type view: %lu -> %lu for a %lux%lu texture", (unsigned long)base.textureType, (unsigned long)want, (unsigned long)base.width, (unsigned long)base.height);
+    static int said; if (said++ < 3) MLOG("贴图类型 %lu → %lu，%lux%lu", (unsigned long)base.textureType, (unsigned long)want, (unsigned long)base.width, (unsigned long)base.height);
     return v;
 }
 static id<MTLTexture> dummy_tex(int dtt, int dpf) {
@@ -7172,8 +7234,8 @@ static int encode_args(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, in
             }
             if (!t) { t = dummy_tex(b->dtt, b->dpf); trid = g_dummy_tex_rid[b->dtt & 7][b->dpf & 3]; }
             else if ((b->dtt == MTLTextureType2DArray && t.textureType == MTLTextureType2D) || (b->dtt == MTLTextureType2D && t.textureType == MTLTextureType2DArray)) {
-                /* TOTK: the shader indexes a 2D texture as a 2D array (the UI glyph atlas: NVN clamps the layer to 0) or the reverse;
-                   Metal needs a matching texture type in the argument buffer, so bind a cached 1-slice view of the right type. */
+                /* 二维贴图被当成数组（或反过来）时，绑定和原图共用存储的单层视图。NVN 会把层号夹到这一层；
+                   着色器编译时已把数组层号夹到 get_array_size()-1，越界层读到这张图，而不是全 0。 */
                 id<MTLTexture> av = tex_type_view(t, (MTLTextureType)b->dtt);
                 if (av) { t = av; trid = av.gpuResourceID._impl; } }
             if (g_mfxup_out && (__bridge void *)sh == (__bridge void *)g_mfxup_sh && t == g_mfxup_src) { t = g_mfxup_out; trid = t.gpuResourceID._impl; }   // TOTK_MFX_UPSCALE
