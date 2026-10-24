@@ -27,6 +27,10 @@ class AcnhAppletExitTests(unittest.TestCase):
             self.assertEqual(compile_result.returncode, 0, compile_result.stderr)
             run_result = subprocess.run([str(binary)], capture_output=True, text=True)
             self.assertEqual(run_result.returncode, 0, run_result.stderr)
+            self.assertIn("ACNH applet exit probe passed", run_result.stdout)
+            self.assertEqual(run_result.stderr.count("ACNH exit: save data idle; process ends"), 2)
+            self.assertEqual(run_result.stderr.count("section released"), 1)
+            self.assertEqual(run_result.stderr.count("still being written after 15 s"), 1)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,5 @@
-/* nn::fs host implementation for the functions main imports. RomFS paths and handles go to the
-   verified read-only backend (romfs.c); save, temporary and cache storage are host directories under
-   the profile directory. Application save data is created on first start, as the system launcher does
-   for titles that declare save data. Writes reach the host file immediately; Commit flushes them.
-   Because of that, quitting in the middle of a save (the game writes several files, then commits) would leave a slot half
-   written: runtime_fs_save_busy tells the window close to wait until the save is done (runtime/frontend.m). */
+/* nn::fs 宿主实现：RomFS 交给只读后端 romfs.c，存档、临时和缓存目录位于 profile 下。
+   首次启动会创建应用存档。ACNH 设备存档使用双槽事务；普通存档保留原有直接写入和关窗忙状态。 */
 #include "autoload.h"
 #include "runtime.h"
 #include "game_application_id.h"
@@ -32,7 +28,7 @@
 #define DEVICE_SAVE_INITIAL_SIZE 0x06f00000LL
 #define DEVICE_SAVE_MAX_SIZE 0x24000000LL
 #define DEVICE_SAVE_META_MAGIC 0x41434e4844534156ULL
-#define DEVICE_SAVE_META_VERSION 1u
+#define DEVICE_SAVE_META_VERSION 2u
 #define DEVICE_SAVE_APP_ID_NAME "01006f8002326000"
 #define TOTK_APPLICATION_ID GAME_APPLICATION_ID
 enum { M_FREE, M_SAVE, M_TEMP, M_CACHE };
@@ -43,22 +39,53 @@ enum { OPEN_READ = 1, OPEN_WRITE = 2, OPEN_APPEND = 4 };
 #define NDIRS 256
 
 typedef struct { int kind; char name[32]; char root[1024]; int device; } Mount;
-typedef struct { int fd, mode, save; } File;   /* save: on a save-data mount (counts for runtime_fs_save_busy) */
-typedef struct { DIR *dir; char path[1024]; int mode; } Dir;
+typedef struct { int fd, mode, save, device; uint64_t generation; } File;   /* save 表示存档挂载上的写句柄 */
+typedef struct { DIR *dir; char path[1024]; int mode, device; uint64_t generation; } Dir;
 static Mount mounts[16];
+#ifdef GAME_ACNH
+/* 只保护挂载生命周期，不保留已卸载名称的历史记录。 */
+static pthread_mutex_t mount_lifecycle_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
 static File files[NFILES];
 static Dir dirs[NDIRS];
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-#ifdef GAME_ACNH
 static pthread_mutex_t device_save_lock = PTHREAD_MUTEX_INITIALIZER;
+#ifdef GAME_ACNH
+typedef struct {
+    uint64_t magic;
+    uint32_t version, reserved;
+    uint64_t application_id;
+    int64_t normal_size, journal_size;
+    uint32_t active_slot, restore_pending;
+    uint64_t checksum;
+} DeviceSaveMetadata;
+_Static_assert(sizeof(DeviceSaveMetadata) == 56, "device save metadata format");
 typedef struct {
     uint64_t magic;
     uint32_t version, reserved;
     uint64_t application_id;
     int64_t normal_size, journal_size;
     uint64_t checksum;
-} DeviceSaveMetadata;
-_Static_assert(sizeof(DeviceSaveMetadata) == 48, "device save metadata format");
+} DeviceSaveMetadataV1;
+_Static_assert(sizeof(DeviceSaveMetadataV1) == 48, "legacy device save metadata format");
+typedef struct {
+    uint64_t magic;
+    uint32_t version, target;
+    uint64_t checksum;
+} DeviceSaveTxn;
+#define DEVICE_SAVE_TXN_MAGIC 0x41434e4854584e31ULL
+static DeviceSaveMetadata device_store_meta;
+static char device_store_base[1200], device_store_meta_path[1200], device_store_slots[2][1200], device_store_txn_path[1200];
+static int device_store_loaded, device_store_staging, device_store_writers;
+enum { DEVICE_FINAL_NONE, DEVICE_FINAL_META_SYNC, DEVICE_FINAL_MARKER_UNLINK, DEVICE_FINAL_MARKER_SYNC };
+static int device_store_finalizing;
+static uint64_t device_store_generation = 1;
+#ifdef ACNH_SAVE_TESTING
+static _Atomic int device_test_classification_pause;
+void acnh_save_test_pause_arm(void) { atomic_store(&device_test_classification_pause, 1); }
+int acnh_save_test_pause_state(void) { return atomic_load(&device_test_classification_pause); }
+void acnh_save_test_pause_release(void) { atomic_store(&device_test_classification_pause, 3); }
+#endif
 #endif
 static char profile[1024], save_root[1024];
 static pthread_once_t once = PTHREAD_ONCE_INIT;
@@ -68,15 +95,34 @@ static void need(int c, const char *m) { if (!c) runtime_fail(m); }
 /* Save in progress: a save-data file open for writing, or save data changed in the last 3 s and not committed yet (TOTK
    writes a slot's files back to back and then commits; between the files nothing is open for a moment). */
 static _Atomic int save_writers, save_dirty;
+#ifdef GAME_ACNH
+static _Atomic int device_save_dirty;
+#endif
 static _Atomic uint64_t save_changed_ns;
 static void save_touched(void) { atomic_store(&save_changed_ns, runtime_now_ns()); atomic_store(&save_dirty, 1); }
+static void save_touched_device(int device) {
+#ifdef GAME_ACNH
+    if (device) { atomic_store(&save_changed_ns, runtime_now_ns()); atomic_store(&device_save_dirty, 1); return; }
+#else
+    (void)device;
+#endif
+    save_touched();
+}
 static unsigned mount_add(const char *name, int kind, const char *root);
+static unsigned host_path(const char *path, char *out, size_t cap);
 #ifdef GAME_ACNH
 static unsigned mount_add_device(const char *name, const char *root);
 #endif
 int runtime_fs_save_busy(void) {
     if (atomic_load(&save_writers) > 0) return 1;
-    return atomic_load(&save_dirty) && runtime_now_ns() - atomic_load(&save_changed_ns) < 3000000000ull;
+    int dirty = atomic_load(&save_dirty);
+#ifdef GAME_ACNH
+    /* 提交和开始暂存时逐文件落盘，可能超过 3 秒且不刷新改动时间；持锁期间一律算忙。 */
+    if (pthread_mutex_trylock(&device_save_lock)) return 1;
+    pthread_mutex_unlock(&device_save_lock);
+    dirty |= atomic_load(&device_save_dirty);
+#endif
+    return dirty && runtime_now_ns() - atomic_load(&save_changed_ns) < 3000000000ull;
 }
 static void make_dir(const char *p) { if (mkdir(p, 0700) && errno != EEXIST) runtime_fail("create profile storage directory"); }
 static int remove_tree(const char *path) {
@@ -90,6 +136,19 @@ static int remove_tree(const char *path) {
     closedir(d);
     return ok | rmdir(path);
 }
+#ifdef GAME_ACNH
+static int clear_tree(const char *path) {
+    DIR *d = opendir(path); if (!d) return -1;
+    struct dirent *e; int ok = 0; char child[2048];
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        snprintf(child, sizeof child, "%s/%s", path, e->d_name);
+        ok |= e->d_type == DT_DIR ? remove_tree(child) : unlink(child);
+    }
+    closedir(d);
+    return ok;
+}
+#endif
 static void init(void) {
     const char *dir = getenv("TOTK_PROFILE_DIR"); if (!dir) dir = "user-data";
     need(snprintf(profile, sizeof profile, "%s", dir) < (int)sizeof profile, "profile path");
@@ -100,7 +159,11 @@ static void init(void) {
     make_dir(save_root);                                   /* launcher-style EnsureSaveData */
     snprintf(p, sizeof p, "%s/temp", profile); remove_tree(p); make_dir(p);
     snprintf(p, sizeof p, "%s/cache", profile); make_dir(p);
+#ifdef GAME_ACNH
+    fprintf(stderr, "[acnh] host save storage initialized\n");
+#else
     fprintf(stderr, "[totk] host save storage: %s\n", save_root);
+#endif
 }
 static void ready(void) { pthread_once(&once, init); }
 
@@ -191,7 +254,7 @@ static unsigned device_mount_name_check(const char *name) {
         else if (!strcmp(mounts[i].name, name)) duplicate = 1;
     }
     pthread_mutex_unlock(&lock);
-    return duplicate ? R_ALREADY_EXISTS : free_slot ? 0 : R_INVALID_ARGUMENT;
+    return duplicate ? R_ALREADY_EXISTS : !free_slot ? R_INVALID_ARGUMENT : 0;
 }
 
 static int device_save_paths(char *base, size_t base_cap, char *root, size_t root_cap,
@@ -255,57 +318,231 @@ static int device_payload_path_safe(const char *root, const char *path) {
     return 1;
 }
 
-static void device_metadata_write_atomic(const char *base, const char *path, DeviceSaveMetadata *metadata) {
-    metadata->checksum = device_metadata_checksum(metadata);
-    char temporary[DEVICE_PATH_CAP];
-    int fd = -1;
+static int device_test_failure(const char *stage) {
+#ifdef ACNH_SAVE_TESTING
+    const char *requested = getenv("ACNH_SAVE_FAILPOINT");
+    if (requested && ((!strcmp(requested, "marker-enospc") && !strcmp(stage, "marker-sync")) ||
+                      (!strcmp(requested, "copy-enospc") && !strcmp(stage, "copy-enospc")))) {
+        errno = ENOSPC; return 1;
+    }
+    if (requested && !strcmp(requested, stage)) { errno = EIO; return 1; }
+#else
+    (void)stage;
+#endif
+    return 0;
+}
+static void device_test_exit(const char *stage) {
+#ifdef ACNH_SAVE_TESTING
+    const char *requested = getenv("ACNH_SAVE_EXITPOINT");
+    if (requested && !strcmp(requested, stage)) _exit(77);
+#else
+    (void)stage;
+#endif
+}
+static int device_sync_fd(int fd, const char *stage) {
+    if (device_test_failure(stage)) return -1;
+    if (!fcntl(fd, F_FULLFSYNC)) return 0;
+    if (errno != EINVAL && errno != ENOTSUP && errno != ENOTTY) return -1;
+    return fsync(fd);
+}
+static int device_sync_directory(const char *path, const char *stage) {
+    int fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (fd < 0) return -1;
+    int result = device_sync_fd(fd, stage);
+    int saved = errno;
+    if (close(fd) && !result) result = -1;
+    errno = saved;
+    return result;
+}
+static int device_write_atomic(const char *base, const char *path, const void *data, size_t size,
+                               const char *stage, int *published) {
+    char temporary[DEVICE_PATH_CAP]; int fd = -1;
+    if (published) *published = 0;
     for (unsigned attempt = 0; attempt < 32; attempt++) {
-        int n = snprintf(temporary, sizeof temporary, "%s/.%s.meta.tmp.%d.%u",
+        int n = snprintf(temporary, sizeof temporary, "%s/.%s.tmp.%d.%u",
                          base, DEVICE_SAVE_APP_ID_NAME, getpid(), attempt);
-        if (n < 0 || (size_t)n >= sizeof temporary) runtime_fail("device save metadata temp path");
+        if (n < 0 || (size_t)n >= sizeof temporary) { errno = ENAMETOOLONG; return -1; }
         fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
         if (fd >= 0 || errno != EEXIST) break;
     }
-    if (fd < 0) runtime_fail("create device save metadata temp file");
-    size_t written = 0;
-    while (written < sizeof *metadata) {
-        ssize_t n = write(fd, (const uint8_t *)metadata + written, sizeof *metadata - written);
-        if (n <= 0) { close(fd); unlink(temporary); runtime_fail("write device save metadata"); }
+    if (fd < 0) return -1;
+    size_t written = 0; int result = 0;
+    while (written < size) {
+        ssize_t n = write(fd, (const uint8_t *)data + written, size - written);
+        if (n <= 0) { result = -1; break; }
         written += (size_t)n;
     }
-    if (fcntl(fd, F_FULLFSYNC) < 0 && fsync(fd)) { close(fd); unlink(temporary); runtime_fail("sync device save metadata"); }
-    if (close(fd)) { unlink(temporary); runtime_fail("close device save metadata"); }
-    if (rename(temporary, path)) { unlink(temporary); runtime_fail("publish device save metadata"); }
-    int dirfd = open(base, O_RDONLY);
-    if (dirfd < 0) runtime_fail("open device save metadata directory for sync");
-    if (fsync(dirfd)) { close(dirfd); runtime_fail("sync device save metadata directory"); }
-    close(dirfd);
+    if (!result && device_sync_fd(fd, stage)) result = -1;
+    if (close(fd)) result = -1;
+    if (!result && device_test_failure(!strcmp(stage, "marker-sync") ? "marker-rename" : "meta-rename")) result = -1;
+    if (!result && rename(temporary, path)) result = -1;
+    if (result) { unlink(temporary); return -1; }
+    if (published) *published = 1;
+    device_test_exit(!strcmp(stage, "marker-sync") ? "after-marker-rename" : "after-meta-rename");
+    return device_sync_directory(base, !strcmp(stage, "marker-sync") ? "marker-dir-sync" : "meta-dir-sync");
+}
+static int device_metadata_try_write(const char *base, const char *path, DeviceSaveMetadata *metadata, int *published) {
+    metadata->checksum = device_metadata_checksum(metadata);
+    return device_write_atomic(base, path, metadata, sizeof *metadata, "meta-sync", published);
+}
+static void device_metadata_write_atomic(const char *base, const char *path, DeviceSaveMetadata *metadata) {
+    if (device_metadata_try_write(base, path, metadata, NULL)) runtime_fail("publish device save metadata");
+}
+static uint64_t device_txn_checksum(const DeviceSaveTxn *txn) {
+    const uint8_t *bytes = (const uint8_t *)txn; uint64_t hash = 1469598103934665603ULL;
+    for (size_t i = 0; i < offsetof(DeviceSaveTxn, checksum); i++) { hash ^= bytes[i]; hash *= 1099511628211ULL; }
+    return hash;
+}
+static DIR *device_open_directory(const char *path) {
+    int fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (fd < 0) return NULL;
+    DIR *dir = fdopendir(fd);
+    if (!dir) close(fd);
+    return dir;
+}
+static int device_tree_validate(const char *root) {
+    DIR *dir = device_open_directory(root); if (!dir) return -1;
+    int result = 0; struct dirent *entry;
+    while (!result && (entry = readdir(dir))) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        char path[2048];
+        if (snprintf(path, sizeof path, "%s/%s", root, entry->d_name) >= (int)sizeof path) { result = -1; break; }
+        struct stat st; if (lstat(path, &st)) { result = -1; break; }
+        if (S_ISDIR(st.st_mode)) result = device_tree_validate(path);
+        else if (!S_ISREG(st.st_mode)) result = -1;
+    }
+    if (closedir(dir)) result = -1;
+    return result;
+}
+static int device_tree_clear(const char *root) {
+    DIR *dir = device_open_directory(root); if (!dir) return -1;
+    int result = 0; struct dirent *entry;
+    while (!result && (entry = readdir(dir))) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        char path[2048];
+        if (snprintf(path, sizeof path, "%s/%s", root, entry->d_name) >= (int)sizeof path) { result = -1; break; }
+        struct stat st; if (lstat(path, &st)) { result = -1; break; }
+        result = S_ISDIR(st.st_mode) ? remove_tree(path) : unlink(path);
+    }
+    if (closedir(dir)) result = -1;
+    return result;
+}
+static int device_tree_sync(const char *root, const char *file_stage, const char *dir_stage) {
+    DIR *dir = device_open_directory(root); if (!dir) return -1;
+    int result = 0; struct dirent *entry;
+    while (!result && (entry = readdir(dir))) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        char path[2048];
+        if (snprintf(path, sizeof path, "%s/%s", root, entry->d_name) >= (int)sizeof path) { result = -1; break; }
+        struct stat st; if (lstat(path, &st)) { result = -1; break; }
+        if (S_ISDIR(st.st_mode)) result = device_tree_sync(path, file_stage, dir_stage);
+        else if (S_ISREG(st.st_mode)) {
+            int fd = open(path, O_RDONLY | O_NOFOLLOW);
+            if (fd < 0) result = -1;
+            else { result = device_sync_fd(fd, file_stage); if (close(fd)) result = -1; }
+        } else result = -1;
+    }
+    if (closedir(dir)) result = -1;
+    if (!result) result = device_sync_directory(root, dir_stage);
+    return result;
+}
+static int device_tree_copy(const char *from, const char *to) {
+    if (device_test_failure("copy-enospc")) return -1;
+    DIR *dir = device_open_directory(from); if (!dir) return -1;
+    int result = 0; struct dirent *entry;
+    while (!result && (entry = readdir(dir))) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        char src[2048], dst[2048];
+        if (snprintf(src, sizeof src, "%s/%s", from, entry->d_name) >= (int)sizeof src ||
+            snprintf(dst, sizeof dst, "%s/%s", to, entry->d_name) >= (int)sizeof dst) { result = -1; break; }
+        struct stat st; if (lstat(src, &st)) { result = -1; break; }
+        if (S_ISDIR(st.st_mode)) {
+            if (mkdir(dst, 0700)) result = -1;
+            else result = device_tree_copy(src, dst);
+        } else if (S_ISREG(st.st_mode)) {
+            int in = open(src, O_RDONLY | O_NOFOLLOW);
+            int out = in < 0 ? -1 : open(dst, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+            if (in < 0 || out < 0) result = -1;
+            char buffer[65536]; ssize_t n = 0;
+            while (!result && (n = read(in, buffer, sizeof buffer)) > 0) {
+                for (ssize_t at = 0; at < n;) { ssize_t w = write(out, buffer + at, (size_t)(n - at)); if (w <= 0) { result = -1; break; } at += w; }
+            }
+            if (!result && n < 0) result = -1;
+            if (out >= 0 && close(out)) result = -1;
+            if (in >= 0 && close(in)) result = -1;
+        } else result = -1;
+    }
+    if (closedir(dir)) result = -1;
+    return result;
 }
 
 static void device_metadata_load_or_create(const char *root, const char *base, const char *path,
                                            DeviceSaveMetadata *out) {
-    struct stat st;
+    if (device_store_loaded && device_store_staging) { *out = device_store_meta; return; }
+    struct stat st; char slot1[DEVICE_PATH_CAP], marker[DEVICE_PATH_CAP];
+    if (snprintf(slot1, sizeof slot1, "%s/.%s.slot1", base, DEVICE_SAVE_APP_ID_NAME) >= (int)sizeof slot1 ||
+        snprintf(marker, sizeof marker, "%s/.%s.txn", base, DEVICE_SAVE_APP_ID_NAME) >= (int)sizeof marker)
+        runtime_fail("device save path too long");
     if (!lstat(path, &st)) {
-        if (!S_ISREG(st.st_mode) || S_ISLNK(st.st_mode) || st.st_size != sizeof *out)
+        if (!S_ISREG(st.st_mode) || S_ISLNK(st.st_mode) ||
+            (st.st_size != sizeof *out && st.st_size != sizeof(DeviceSaveMetadataV1)))
             runtime_fail("device save metadata type or length invalid");
         int fd = open(path, O_RDONLY | O_NOFOLLOW);
         if (fd < 0) runtime_fail("open device save metadata");
-        size_t read_bytes = 0;
-        while (read_bytes < sizeof *out) {
-            ssize_t n = read(fd, (uint8_t *)out + read_bytes, sizeof *out - read_bytes);
+        uint8_t bytes[sizeof *out]; size_t length = (size_t)st.st_size, read_bytes = 0;
+        while (read_bytes < length) {
+            ssize_t n = read(fd, bytes + read_bytes, length - read_bytes);
             if (n <= 0) { close(fd); runtime_fail("read device save metadata"); }
             read_bytes += (size_t)n;
         }
         struct stat after;
-        int bad = fstat(fd, &after) || !S_ISREG(after.st_mode) || after.st_size != sizeof *out;
+        int bad = fstat(fd, &after) || !S_ISREG(after.st_mode) || after.st_size != (off_t)length;
         close(fd);
-        if (bad || out->magic != DEVICE_SAVE_META_MAGIC || out->version != DEVICE_SAVE_META_VERSION || out->reserved ||
+        if (bad) runtime_fail("device save metadata changed while reading");
+        if (length == sizeof(DeviceSaveMetadataV1)) {
+            DeviceSaveMetadataV1 old; memcpy(&old, bytes, sizeof old);
+            uint64_t hash = 1469598103934665603ULL;
+            for (size_t i = 0; i < offsetof(DeviceSaveMetadataV1, checksum); i++) { hash ^= bytes[i]; hash *= 1099511628211ULL; }
+            if (old.version != 1 || old.checksum != hash) runtime_fail("legacy device save metadata invalid");
+            *out = (DeviceSaveMetadata){ .magic = old.magic, .version = DEVICE_SAVE_META_VERSION,
+                .reserved = old.reserved, .application_id = old.application_id,
+                .normal_size = old.normal_size, .journal_size = old.journal_size };
+        } else memcpy(out, bytes, sizeof *out);
+        if (out->magic != DEVICE_SAVE_META_MAGIC || out->version != DEVICE_SAVE_META_VERSION || out->reserved ||
             out->application_id != TOTK_APPLICATION_ID || out->normal_size < DEVICE_SAVE_INITIAL_SIZE ||
             out->journal_size < DEVICE_SAVE_INITIAL_SIZE || out->normal_size > DEVICE_SAVE_MAX_SIZE ||
-            out->journal_size > DEVICE_SAVE_MAX_SIZE || out->checksum != device_metadata_checksum(out))
+            out->journal_size > DEVICE_SAVE_MAX_SIZE || out->active_slot > 1 || out->restore_pending > 1 ||
+            (length == sizeof *out && out->checksum != device_metadata_checksum(out)))
             runtime_fail("device save metadata contents invalid");
         if (lstat(root, &st) || !S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode))
             runtime_fail("device save payload root missing or invalid for existing metadata");
+        if (length == sizeof(DeviceSaveMetadataV1)) {
+            if (lstat(marker, &st) != -1 || errno != ENOENT) runtime_fail("legacy device save marker exists");
+            if (lstat(slot1, &st)) { if (errno != ENOENT || mkdir(slot1, 0700)) runtime_fail("create second device save slot"); }
+            else if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode) || device_directory_empty(slot1) != 1)
+                runtime_fail("legacy device save second slot invalid");
+            if (device_sync_directory(slot1, "clone-dir-sync") || device_sync_directory(base, "clone-dir-sync"))
+                runtime_fail("sync second device save slot");
+            device_metadata_write_atomic(base, path, out);
+        } else if (lstat(slot1, &st) || !S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode))
+            runtime_fail("second device save slot missing or invalid");
+        const char *active = out->active_slot ? slot1 : root;
+        if (lstat(active, &st) || !S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) runtime_fail("active device save slot missing");
+        if (!lstat(marker, &st)) {
+            if (!S_ISREG(st.st_mode) || S_ISLNK(st.st_mode) || st.st_size != sizeof(DeviceSaveTxn)) runtime_fail("device save marker invalid");
+            DeviceSaveTxn txn; fd = open(marker, O_RDONLY | O_NOFOLLOW);
+            if (fd < 0 || read(fd, &txn, sizeof txn) != sizeof txn) runtime_fail("read device save marker");
+            if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size != sizeof txn)
+                runtime_fail("device save marker changed while reading");
+            close(fd);
+            if (txn.magic != DEVICE_SAVE_TXN_MAGIC || txn.version != 1 || txn.target > 1 ||
+                txn.checksum != device_txn_checksum(&txn)) runtime_fail("device save marker contents invalid");
+            if (txn.target != out->active_slot) {
+                out->restore_pending = 1;
+                device_metadata_write_atomic(base, path, out);
+            }
+            if (unlink(marker) || device_sync_directory(base, "marker-dir-sync")) runtime_fail("clear device save recovery marker");
+        } else if (errno != ENOENT) runtime_fail("inspect device save marker");
         return;
     }
     if (errno != ENOENT) runtime_fail("inspect device save metadata");
@@ -323,35 +560,148 @@ static void device_metadata_load_or_create(const char *root, const char *base, c
         .normal_size = DEVICE_SAVE_INITIAL_SIZE,
         .journal_size = DEVICE_SAVE_INITIAL_SIZE,
     };
+    if (lstat(slot1, &st)) { if (errno != ENOENT || mkdir(slot1, 0700)) runtime_fail("create second device save slot"); }
+    else if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode) || device_directory_empty(slot1) != 1)
+        runtime_fail("second device save slot invalid on first launch");
+    if (lstat(marker, &st) != -1 || errno != ENOENT) runtime_fail("device save marker without metadata");
+    if (device_sync_directory(root, "clone-dir-sync") || device_sync_directory(slot1, "clone-dir-sync") ||
+        device_sync_directory(base, "clone-dir-sync")) runtime_fail("sync initial device save slots");
     device_metadata_write_atomic(base, path, out);
 }
 
-static unsigned mount_device_save_data(const char *name) {
-    unsigned name_result = device_mount_name_check(name);
-    if (name_result) return name_result;
+static void device_store_attach(const char *base, const char *root, const char *meta, const DeviceSaveMetadata *metadata) {
+    if (snprintf(device_store_base, sizeof device_store_base, "%s", base) >= (int)sizeof device_store_base ||
+        snprintf(device_store_meta_path, sizeof device_store_meta_path, "%s", meta) >= (int)sizeof device_store_meta_path ||
+        snprintf(device_store_slots[0], sizeof device_store_slots[0], "%s", root) >= (int)sizeof device_store_slots[0] ||
+        snprintf(device_store_slots[1], sizeof device_store_slots[1], "%s/.%s.slot1", base, DEVICE_SAVE_APP_ID_NAME) >= (int)sizeof device_store_slots[1] ||
+        snprintf(device_store_txn_path, sizeof device_store_txn_path, "%s/.%s.txn", base, DEVICE_SAVE_APP_ID_NAME) >= (int)sizeof device_store_txn_path)
+        runtime_fail("device save store path too long");
+    if (strlen(device_store_slots[0]) >= sizeof mounts[0].root ||
+        strlen(device_store_slots[1]) >= sizeof mounts[0].root)
+        runtime_fail("device save mount path too long");
+    device_store_meta = *metadata;
+    device_store_loaded = 1;
+}
+static void device_store_update_mounts(const char *root) {
+    pthread_mutex_lock(&lock);
+    for (int i = 0; i < 16; i++) if (mounts[i].kind && mounts[i].device)
+        snprintf(mounts[i].root, sizeof mounts[i].root, "%s", root);
+    pthread_mutex_unlock(&lock);
+}
+static unsigned device_stage_begin(void) {
+    if (!device_store_loaded) return R_INVALID_ARGUMENT;
+    if (device_store_finalizing) return R_INVALID_ARGUMENT;
+    if (device_store_staging) return 0;
+    unsigned target = 1u - device_store_meta.active_slot;
+    const char *inactive = device_store_slots[target];
+    struct stat st;
+    if (lstat(inactive, &st) || !S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode) ||
+        device_tree_validate(inactive)) return R_INVALID_PATH;
+    if (device_tree_clear(inactive)) return R_INVALID_ARGUMENT;
+    device_test_exit("after-clear-before-clone");
+    if (device_tree_copy(device_store_slots[device_store_meta.active_slot], inactive) ||
+        device_tree_sync(inactive, "clone-sync", "clone-dir-sync") ||
+        device_sync_directory(device_store_base, "clone-dir-sync")) return R_INVALID_ARGUMENT;
+    device_test_exit("after-clone-before-marker");
+    DeviceSaveTxn txn = { .magic = DEVICE_SAVE_TXN_MAGIC, .version = 1, .target = target };
+    txn.checksum = device_txn_checksum(&txn);
+    int published = 0;
+    if (device_write_atomic(device_store_base, device_store_txn_path, &txn, sizeof txn, "marker-sync", &published))
+        return R_INVALID_ARGUMENT;
+    device_test_exit("after-marker");
+    device_store_staging = 1;
+    device_store_generation++;
+    device_store_update_mounts(inactive);
+    return 0;
+}
+static unsigned device_finalize_locked(void) {
+    if (device_store_finalizing == DEVICE_FINAL_META_SYNC) {
+        if (device_sync_directory(device_store_base, "meta-dir-sync")) return R_INVALID_ARGUMENT;
+        device_store_finalizing = DEVICE_FINAL_MARKER_UNLINK;
+    }
+    if (device_store_finalizing == DEVICE_FINAL_MARKER_UNLINK) {
+        if (device_test_failure("marker-unlink")) return R_INVALID_ARGUMENT;
+        if (unlink(device_store_txn_path) && errno != ENOENT) return R_INVALID_ARGUMENT;
+        device_store_finalizing = DEVICE_FINAL_MARKER_SYNC;
+    }
+    if (device_store_finalizing == DEVICE_FINAL_MARKER_SYNC) {
+        if (device_sync_directory(device_store_base, "marker-cleanup-dir-sync")) return R_INVALID_ARGUMENT;
+        device_store_finalizing = DEVICE_FINAL_NONE;
+        atomic_store(&device_save_dirty, 0);
+    }
+    return 0;
+}
+/* 返回的位标记表示持有的锁：1 设备存档，2 挂载生命周期。 */
+static unsigned device_path_enter(const char *path, int mutate, int *held) {
+    *held = 0;
+    if (!path) return R_INVALID_PATH;
+    const char *colon = strchr(path, ':');
+    if (!colon || colon[1] != '/') return R_INVALID_PATH;
+    if (mutate) { const char *rest = colon + 2; while (*rest == '/') rest++; if (!*rest) return R_INVALID_PATH; }
+    pthread_mutex_lock(&mount_lifecycle_lock);
+    size_t n = (size_t)(colon - path); int device = 0, found = 0;
+    pthread_mutex_lock(&lock);
+    for (int i = 0; i < 16; i++) if (mounts[i].kind &&
+        strlen(mounts[i].name) == n && !strncmp(mounts[i].name, path, n)) {
+        found = 1; device = mounts[i].device; break;
+    }
+    pthread_mutex_unlock(&lock);
+    if (!found) { pthread_mutex_unlock(&mount_lifecycle_lock); return R_PATH_NOT_FOUND; }
+#ifdef ACNH_SAVE_TESTING
+    int armed = 1;
+    if (atomic_compare_exchange_strong(&device_test_classification_pause, &armed, 2))
+        while (atomic_load(&device_test_classification_pause) == 2) usleep(1000);
+#endif
+    if (!device) { *held = 2; return 0; }
     pthread_mutex_lock(&device_save_lock);
-    if (!device_profile_preflight()) { pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT; }
+    if (device_store_finalizing) { pthread_mutex_unlock(&device_save_lock); pthread_mutex_unlock(&mount_lifecycle_lock); return R_INVALID_ARGUMENT; }
+    if (mutate) {
+        char checked[1100]; unsigned result = host_path(path, checked, sizeof checked);
+        if (!result) result = device_stage_begin();
+        if (result) { pthread_mutex_unlock(&device_save_lock); pthread_mutex_unlock(&mount_lifecycle_lock); return result; }
+    }
+    *held = 3;
+    return 0;
+}
+
+static void device_path_leave(int held) {
+    if (held & 1) pthread_mutex_unlock(&device_save_lock);
+    if (held & 2) pthread_mutex_unlock(&mount_lifecycle_lock);
+}
+
+static unsigned mount_device_save_data(const char *name) {
+    pthread_mutex_lock(&mount_lifecycle_lock);
+    unsigned name_result = device_mount_name_check(name);
+    if (name_result) { pthread_mutex_unlock(&mount_lifecycle_lock); return name_result; }
+    pthread_mutex_lock(&device_save_lock);
+    if (device_store_finalizing && device_finalize_locked()) {
+        pthread_mutex_unlock(&device_save_lock); pthread_mutex_unlock(&mount_lifecycle_lock); return R_INVALID_ARGUMENT;
+    }
+    if (!device_profile_preflight()) { pthread_mutex_unlock(&device_save_lock); pthread_mutex_unlock(&mount_lifecycle_lock); return R_INVALID_ARGUMENT; }
     ready();
     char base[DEVICE_PATH_CAP], root[DEVICE_PATH_CAP], meta[DEVICE_PATH_CAP];
     if (!device_save_paths(base, sizeof base, root, sizeof root, meta, sizeof meta) ||
         !device_directory_path(base, 1)) {
-        pthread_mutex_unlock(&device_save_lock);
+        pthread_mutex_unlock(&device_save_lock); pthread_mutex_unlock(&mount_lifecycle_lock);
         return R_INVALID_ARGUMENT;
     }
     DeviceSaveMetadata metadata;
     device_metadata_load_or_create(root, base, meta, &metadata);
+    device_store_attach(base, root, meta, &metadata);
     if (!device_directory_path(root, 0)) {
-        pthread_mutex_unlock(&device_save_lock);
+        pthread_mutex_unlock(&device_save_lock); pthread_mutex_unlock(&mount_lifecycle_lock);
         return R_INVALID_ARGUMENT;
     }
-    unsigned result = mount_add_device(name, root);
+    unsigned result = mount_add_device(name, device_store_slots[metadata.active_slot ^ (unsigned)device_store_staging]);
     pthread_mutex_unlock(&device_save_lock);
+    pthread_mutex_unlock(&mount_lifecycle_lock);
     return result;
 }
 
 static unsigned get_device_save_data_size(int64_t *normal, int64_t *journal) {
     if (!normal || !journal) return R_INVALID_ARGUMENT;
     pthread_mutex_lock(&device_save_lock);
+    if (device_store_finalizing) { pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT; }
     if (!device_profile_preflight()) { pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT; }
     ready();
     char base[DEVICE_PATH_CAP], root[DEVICE_PATH_CAP], meta[DEVICE_PATH_CAP];
@@ -362,6 +712,7 @@ static unsigned get_device_save_data_size(int64_t *normal, int64_t *journal) {
     }
     DeviceSaveMetadata metadata;
     device_metadata_load_or_create(root, base, meta, &metadata);
+    if (device_store_loaded && !device_store_staging) device_store_meta = metadata;
     pthread_mutex_unlock(&device_save_lock);
     *normal = metadata.normal_size;
     *journal = metadata.journal_size;
@@ -369,40 +720,130 @@ static unsigned get_device_save_data_size(int64_t *normal, int64_t *journal) {
 }
 
 static unsigned get_device_save_restore_flag(bool *out, const char *name) {
-    (void)out;
-    (void)name;
-    runtime_fail("ACNH GetSaveDataRestoreFlag is not supported");
+    if (!out || !name) return R_INVALID_ARGUMENT;
+    pthread_mutex_lock(&mount_lifecycle_lock);
+    pthread_mutex_lock(&lock);
+    int found = 0;
+    for (int i = 0; i < 16; i++) if (mounts[i].kind == M_SAVE && mounts[i].device && !strcmp(mounts[i].name, name)) found = 1;
+    pthread_mutex_unlock(&lock);
+    if (!found) { pthread_mutex_unlock(&mount_lifecycle_lock); return R_PATH_NOT_FOUND; }
+    pthread_mutex_lock(&device_save_lock);
+    if (device_store_finalizing) { pthread_mutex_unlock(&device_save_lock); pthread_mutex_unlock(&mount_lifecycle_lock); return R_INVALID_ARGUMENT; }
+    *out = device_store_meta.restore_pending != 0;
+    pthread_mutex_unlock(&device_save_lock);
+    pthread_mutex_unlock(&mount_lifecycle_lock);
+    return 0;
 }
 
+static unsigned commit(const char *name);
 static unsigned commit_multiple(const char *const *names, int count) {
-    (void)names;
-    (void)count;
-    runtime_fail("ACNH multi-name Commit is not supported");
+    if (count < 0 || count > 16 || (count > 0 && !names)) return R_INVALID_ARGUMENT;
+    if (count > 1) return R_INVALID_ARGUMENT; /* 跨物理 store 的原子提交尚未实现。 */
+    if (!count) return 0;
+    if (!names[0]) return R_INVALID_ARGUMENT;
+    return commit(names[0]);
 }
 
 static unsigned commit_with_options(const char *name, const void *option) {
-    (void)name;
-    (void)option;
-    runtime_fail("ACNH Commit with options is not supported");
+    if (!name || !option) return R_INVALID_ARGUMENT;
+    uint32_t value; memcpy(&value, option, sizeof value);
+    /* 1 是 ClearRestoreFlag：有暂存时提交本身清除恢复提示；没有暂存时单独改写元数据清除。2 SetRestoreFlag 尚未实现。 */
+    if (value > 1) return R_INVALID_ARGUMENT;
+    unsigned result = commit(name);
+    if (result || value != 1) return result;
+    pthread_mutex_lock(&mount_lifecycle_lock);
+    pthread_mutex_lock(&lock);
+    int device = 0;
+    for (int i = 0; i < 16; i++) if (mounts[i].kind == M_SAVE && mounts[i].device && !strcmp(mounts[i].name, name)) device = 1;
+    pthread_mutex_unlock(&lock);
+    if (device) {
+        pthread_mutex_lock(&device_save_lock);
+        if (device_store_staging || device_store_finalizing) result = R_INVALID_ARGUMENT;
+        else if (device_store_meta.restore_pending) {
+            DeviceSaveMetadata next = device_store_meta;
+            next.restore_pending = 0;
+            int published = 0;
+            if (device_metadata_try_write(device_store_base, device_store_meta_path, &next, &published)) result = R_INVALID_ARGUMENT;
+            if (published) device_store_meta = next;
+        }
+        pthread_mutex_unlock(&device_save_lock);
+    }
+    pthread_mutex_unlock(&mount_lifecycle_lock);
+    return result;
 }
 
+/* 只允许把设备存档容量加大到上限以内，不能缩小。 */
 static unsigned extend_device_save_data(int64_t normal, int64_t journal) {
-    (void)normal;
-    (void)journal;
-    runtime_fail("ACNH ExtendDeviceSaveData is not supported");
+    if (normal < DEVICE_SAVE_INITIAL_SIZE || journal < DEVICE_SAVE_INITIAL_SIZE ||
+        normal > DEVICE_SAVE_MAX_SIZE || journal > DEVICE_SAVE_MAX_SIZE) return R_INVALID_ARGUMENT;
+    pthread_mutex_lock(&device_save_lock);
+    if (device_store_finalizing) { pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT; }
+    if (!device_profile_preflight()) { pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT; }
+    ready();
+    char base[DEVICE_PATH_CAP], root[DEVICE_PATH_CAP], meta[DEVICE_PATH_CAP];
+    if (!device_save_paths(base, sizeof base, root, sizeof root, meta, sizeof meta) ||
+        !device_directory_path(base, 1)) {
+        pthread_mutex_unlock(&device_save_lock);
+        return R_INVALID_ARGUMENT;
+    }
+    DeviceSaveMetadata metadata;
+    if (device_store_staging || device_store_writers) { pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT; }
+    char marker[DEVICE_PATH_CAP];
+    if (snprintf(marker, sizeof marker, "%s/.%s.txn", base, DEVICE_SAVE_APP_ID_NAME) >= (int)sizeof marker) {
+        pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT;
+    }
+    struct stat marker_st;
+    if (!lstat(marker, &marker_st) || errno != ENOENT) { pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT; }
+    device_metadata_load_or_create(root, base, meta, &metadata);
+    if (device_store_loaded) device_store_meta = metadata;
+    if (normal < metadata.normal_size || journal < metadata.journal_size) {
+        pthread_mutex_unlock(&device_save_lock);
+        return R_INVALID_ARGUMENT;
+    }
+    if (normal != metadata.normal_size || journal != metadata.journal_size) {
+        metadata.normal_size = normal;
+        metadata.journal_size = journal;
+        device_metadata_write_atomic(base, meta, &metadata);
+        if (device_store_loaded) device_store_meta = metadata;
+        fprintf(stderr, "[acnh] 设备存档容量扩到 normal %lld journal %lld\n", (long long)normal, (long long)journal);
+    }
+    pthread_mutex_unlock(&device_save_lock);
+    return 0;
 }
 #endif
 
 /* ---------- mounts and paths ---------- */
+#ifndef GAME_ACNH
+static unsigned device_path_enter(const char *path, int mutate, int *held) {
+    (void)path; (void)mutate; *held = 0; return 0;
+}
+static void device_path_leave(int held) { (void)held; }
+#endif
 static unsigned mount_add_internal(const char *name, int kind, const char *root, int device) {
     if (!name || !*name || strlen(name) >= 32 || strchr(name, ':') || strchr(name, '/')) return R_INVALID_ARGUMENT;
+#ifdef GAME_ACNH
+    if (!device) pthread_mutex_lock(&mount_lifecycle_lock);
+#endif
     pthread_mutex_lock(&lock);
     int slot = -1;
-    for (int i = 0; i < 16; i++) { if (mounts[i].kind && !strcmp(mounts[i].name, name)) { pthread_mutex_unlock(&lock); return R_ALREADY_EXISTS; } if (!mounts[i].kind && slot < 0) slot = i; }
+    for (int i = 0; i < 16; i++) { if (mounts[i].kind && !strcmp(mounts[i].name, name)) {
+        pthread_mutex_unlock(&lock);
+#ifdef GAME_ACNH
+        if (!device) pthread_mutex_unlock(&mount_lifecycle_lock);
+#endif
+        return R_ALREADY_EXISTS;
+    } if (!mounts[i].kind && slot < 0) slot = i; }
     if (slot < 0) runtime_fail("fs mount table full");
     mounts[slot].kind = kind; mounts[slot].device = device; strcpy(mounts[slot].name, name); snprintf(mounts[slot].root, sizeof mounts[slot].root, "%s", root);
     pthread_mutex_unlock(&lock);
+#ifdef GAME_ACNH
+    if (!device) pthread_mutex_unlock(&mount_lifecycle_lock);
+#endif
+#ifdef GAME_ACNH
+    fprintf(stderr, "[acnh] fs mount %s\n", name);
+#else
     fprintf(stderr, "[totk] fs mount %s: -> %s\n", name, root);
+#endif
     return 0;
 }
 static unsigned mount_add(const char *name, int kind, const char *root) {
@@ -442,9 +883,9 @@ static unsigned host_path_kind(const char *path, char *out, size_t cap, int *kin
 }
 static unsigned host_path(const char *path, char *out, size_t cap) { return host_path_kind(path, out, cap, NULL); }
 /* A change to save data through a path (create, delete, rename, directories): marks the save as in progress. */
-static unsigned save_change_path(const char *path, char *out, size_t cap) {
+static unsigned save_change_path(const char *path, char *out, size_t cap, int device) {
     int kind = M_FREE; unsigned r = host_path_kind(path, out, cap, &kind);
-    if (!r && kind == M_SAVE) save_touched();
+    if (!r && kind == M_SAVE) save_touched_device(device);
     return r;
 }
 static unsigned errno_result(void) { return errno == ENOENT || errno == ENOTDIR ? R_PATH_NOT_FOUND : errno == EEXIST ? R_ALREADY_EXISTS : errno == ENOTEMPTY ? R_NOT_EMPTY : R_INVALID_ARGUMENT; }
@@ -495,19 +936,82 @@ static unsigned read_cache_list(int *count, CacheStorageInfo *out, uint64_t h, i
 }
 static void close_cache_list(uint64_t h) { free((void *)(uintptr_t)h); }
 static void unmount(const char *name) {
+#ifdef GAME_ACNH
+    pthread_mutex_lock(&mount_lifecycle_lock);
+#endif
     pthread_mutex_lock(&lock);
-    for (int i = 0; i < 16; i++) if (mounts[i].kind && !strcmp(mounts[i].name, name)) { mounts[i].kind = M_FREE; pthread_mutex_unlock(&lock); return; }
+    for (int i = 0; i < 16; i++) if (mounts[i].kind && !strcmp(mounts[i].name, name)) {
+        mounts[i].kind = M_FREE; pthread_mutex_unlock(&lock);
+#ifdef GAME_ACNH
+        pthread_mutex_unlock(&mount_lifecycle_lock);
+#endif
+        return;
+    }
     pthread_mutex_unlock(&lock);
+#ifdef GAME_ACNH
+    pthread_mutex_unlock(&mount_lifecycle_lock);
+#endif
     BOTW_AOC_UNMOUNT(name) if (!runtime_romfs_owns(name)) runtime_fail("unmount of unknown fs mount");
 }
-static unsigned commit(const char *name) {
-    pthread_mutex_lock(&lock); int found = 0, save = 0;
-    for (int i = 0; i < 16; i++) if (mounts[i].kind && !strcmp(mounts[i].name, name)) { found = 1; save = mounts[i].kind == M_SAVE; }
+static unsigned commit_while_mounted(const char *name) {
+    if (!name) return R_INVALID_ARGUMENT;
+    pthread_mutex_lock(&lock); int found = 0, save = 0, device = 0;
+    for (int i = 0; i < 16; i++) if (mounts[i].kind && !strcmp(mounts[i].name, name)) {
+        found = 1; save = mounts[i].kind == M_SAVE; device = mounts[i].device;
+    }
     pthread_mutex_unlock(&lock);
     if (!found) return R_PATH_NOT_FOUND;
+#ifndef GAME_ACNH
+    (void)device;
+#endif
+#ifdef GAME_ACNH
+    if (device) {
+        pthread_mutex_lock(&device_save_lock);
+        if (device_store_writers) { pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT; }
+        if (device_store_finalizing) {
+            unsigned result = device_finalize_locked();
+            pthread_mutex_unlock(&device_save_lock);
+            return result;
+        }
+        if (!device_store_staging) { pthread_mutex_unlock(&device_save_lock); return 0; }
+        unsigned target = 1u - device_store_meta.active_slot;
+        if (device_tree_sync(device_store_slots[target], "commit-sync", "commit-dir-sync") ||
+            device_sync_directory(device_store_base, "commit-dir-sync")) {
+            pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT;
+        }
+        device_test_exit("before-meta");
+        DeviceSaveMetadata next = device_store_meta;
+        next.active_slot = target;
+        next.restore_pending = 0; /* 本机策略：一次成功提交清除恢复提示。 */
+        int published = 0;
+        int error = device_metadata_try_write(device_store_base, device_store_meta_path, &next, &published);
+        if (published) {
+            device_store_meta = next;
+            device_store_staging = 0;
+            device_store_finalizing = error ? DEVICE_FINAL_META_SYNC : DEVICE_FINAL_MARKER_UNLINK;
+            device_store_generation++;
+            device_store_update_mounts(device_store_slots[target]);
+        }
+        if (error) { pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT; }
+        device_test_exit("after-meta");
+        unsigned result = device_finalize_locked();
+        pthread_mutex_unlock(&device_save_lock);
+        return result;
+    }
+#endif
     for (int i = 0; i < NFILES; i++) { pthread_mutex_lock(&lock); int fd = files[i].fd; pthread_mutex_unlock(&lock); if (fd > 0) fcntl(fd, F_FULLFSYNC); }
     if (save && !(getenv("TOTK_PROBE_NEGATIVE") && atoi(getenv("TOTK_PROBE_NEGATIVE")) == 23)) atomic_store(&save_dirty, 0);   /* 23: probe-save's negative control */
     return 0;
+}
+static unsigned commit(const char *name) {
+#ifdef GAME_ACNH
+    pthread_mutex_lock(&mount_lifecycle_lock);
+#endif
+    unsigned result = commit_while_mounted(name);
+#ifdef GAME_ACNH
+    pthread_mutex_unlock(&mount_lifecycle_lock);
+#endif
+    return result;
 }
 
 /* ---------- files ---------- */
@@ -521,28 +1025,53 @@ static unsigned open_file(uint64_t *out, const char *path, int mode) {
     if (path && !runtime_romfs_owns(path)) runtime_fs_log(mode & 2 ? "write" : "read", path);
     if (runtime_romfs_owns(path)) return runtime_romfs_open(out, path, mode); BOTW_AOC_OPEN(out, path, mode)
     if (!out || !(mode & (OPEN_READ | OPEN_WRITE)) || (mode & ~7)) return R_INVALID_ARGUMENT;
-    char p[1100]; int kind = M_FREE; unsigned r = host_path_kind(path, p, sizeof p, &kind); if (r) return r;
-    struct stat st; if (stat(p, &st)) return R_PATH_NOT_FOUND; if (!S_ISREG(st.st_mode)) return R_PATH_NOT_FOUND;
+    int device_held = 0;
+    unsigned entered = device_path_enter(path, (mode & OPEN_WRITE) != 0, &device_held);
+    if (entered) return entered;
+    char p[1100]; int kind = M_FREE; unsigned r = host_path_kind(path, p, sizeof p, &kind);
+    if (r) { device_path_leave(device_held); return r; }
+    struct stat st; if (stat(p, &st) || !S_ISREG(st.st_mode)) { device_path_leave(device_held); return R_PATH_NOT_FOUND; }
     int save_writer = kind == M_SAVE && (mode & OPEN_WRITE);
     int fd = open(p, (mode & OPEN_WRITE ? (mode & OPEN_READ ? O_RDWR : O_WRONLY) : O_RDONLY) | O_NOFOLLOW);
-    if (fd < 0) return errno_result();
+    if (fd < 0) { device_path_leave(device_held); return errno_result(); }
     runtime_autoload_save_file_opened(path);   /* TOTK_AUTOLOAD: a slot's caption.sav starts the presses, its progress.sav ends them */
     pthread_mutex_lock(&lock);
     for (int i = 0; i < NFILES; i++) if (files[i].fd <= 0) {
-        files[i] = (File){fd, mode, save_writer}; *out = FILE_BASE + (uint64_t)i; pthread_mutex_unlock(&lock);
-        if (save_writer) { atomic_fetch_add(&save_writers, 1); save_touched(); }
+        files[i] = (File){ .fd = fd, .mode = mode, .save = save_writer,
+            .device = device_held & 1,
+#ifdef GAME_ACNH
+            .generation = (device_held & 1) ? device_store_generation : 0,
+#endif
+        };
+        *out = FILE_BASE + (uint64_t)i; pthread_mutex_unlock(&lock);
+#ifdef GAME_ACNH
+        if ((device_held & 1) && save_writer) device_store_writers++;
+#endif
+        device_path_leave(device_held);
+        if (save_writer) { atomic_fetch_add(&save_writers, 1); save_touched_device(device_held & 1); }
         return 0;
     }
-    pthread_mutex_unlock(&lock); runtime_fail("host file handle table full");
+    pthread_mutex_unlock(&lock); device_path_leave(device_held);
+    runtime_fail("host file handle table full");
 }
 static unsigned read_file(uint64_t *out, uint64_t h, int64_t offset, void *buffer, uint64_t size) {
     if (runtime_romfs_handle(h)) return runtime_romfs_read(out, h, offset, buffer, size); BOTW_AOC_READ(out, h, offset, buffer, size)
-    int fd, mode; if (!out || offset < 0 || (!buffer && size) || !file_of(h, &fd, &mode)) return R_INVALID_ARGUMENT;
+    int fd, mode; File *f = (!out || offset < 0 || (!buffer && size)) ? NULL : file_of(h, &fd, &mode);
+    if (!f) return R_INVALID_ARGUMENT;
     if (!(mode & OPEN_READ)) return R_OPEN_MODE;
+#ifdef GAME_ACNH
+    if (f->device) { pthread_mutex_lock(&device_save_lock); if (f->generation != device_store_generation) {
+        pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT;
+    } }
+#endif
     dm_guest_write_prepare(buffer, (size_t)size);
     uint64_t done = 0;
     while (done < size) { ssize_t n = pread(fd, (uint8_t *)buffer + done, (size_t)(size - done), offset + (off_t)done); if (n < 0) runtime_fail("host save read failure"); if (!n) break; done += (uint64_t)n; }
-    *out = done; return 0;
+    *out = done;
+#ifdef GAME_ACNH
+    if (f->device) pthread_mutex_unlock(&device_save_lock);
+#endif
+    return 0;
 }
 static unsigned read_options(uint64_t *out, uint64_t h, int64_t off, void *buf, uint64_t size, const void *options) { (void)options; return read_file(out, h, off, buf, size); }
 static unsigned read_exact(uint64_t h, int64_t off, void *buf, uint64_t size) { uint64_t n = 0; unsigned r = read_file(&n, h, off, buf, size); return r ? r : n == size ? 0 : R_INVALID_ARGUMENT; }
@@ -553,57 +1082,162 @@ static unsigned write_file(uint64_t h, int64_t offset, const void *buffer, uint6
     if ((uint64_t)offset + size > (uint64_t)st.st_size && !(mode & OPEN_APPEND)) return R_APPEND_REQUIRED;
     uint64_t done = 0;
     if (f->save) {
-        save_touched();
+        save_touched_device(f->device);
         static int delay_ms = -1; if (delay_ms < 0) { const char *e = getenv("TOTK_SAVE_WRITE_DELAY_MS"); delay_ms = e ? atoi(e) : 0; }
         if (delay_ms > 0) usleep((useconds_t)delay_ms * 1000);   /* tests only: slow saves down so a window close lands in the middle of one */
     }
     while (done < size) { ssize_t n = pwrite(fd, (const uint8_t *)buffer + done, (size_t)(size - done), offset + (off_t)done); if (n <= 0) runtime_fail("host save write failure"); done += (uint64_t)n; }
-    if (option && (*option & 1)) fcntl(fd, F_FULLFSYNC);
+    if (option && (*option & 1)) {
+#ifdef GAME_ACNH
+        if (f->device) return device_sync_fd(fd, "write-sync") ? R_INVALID_ARGUMENT : 0;
+#endif
+        fcntl(fd, F_FULLFSYNC);
+    }
     return 0;
 }
 static unsigned file_size(int64_t *out, uint64_t h) {
     if (runtime_romfs_handle(h)) return runtime_romfs_size(out, h); BOTW_AOC_SIZE(out, h)
-    int fd; struct stat st; if (!out || !file_of(h, &fd, NULL) || fstat(fd, &st)) return R_INVALID_ARGUMENT;
+    int fd; struct stat st; File *f = out ? file_of(h, &fd, NULL) : NULL;
+    if (!f) return R_INVALID_ARGUMENT;
+#ifdef GAME_ACNH
+    if (f->device) { pthread_mutex_lock(&device_save_lock); if (f->generation != device_store_generation) {
+        pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT;
+    } }
+#endif
+    int bad = fstat(fd, &st);
+#ifdef GAME_ACNH
+    if (f->device) pthread_mutex_unlock(&device_save_lock);
+#endif
+    if (bad) return R_INVALID_ARGUMENT;
     *out = st.st_size; return 0;
 }
 static unsigned set_file_size(uint64_t h, int64_t size) {
     int fd, mode; if (size < 0 || !file_of(h, &fd, &mode)) return R_INVALID_ARGUMENT;
     if (!(mode & OPEN_WRITE)) return R_OPEN_MODE;
-    if (files[h - FILE_BASE].save) save_touched();
+    if (files[h - FILE_BASE].save) save_touched_device(files[h - FILE_BASE].device);
     return ftruncate(fd, size) ? errno_result() : 0;
 }
-static unsigned flush_file(uint64_t h) { int fd; if (!file_of(h, &fd, NULL)) return R_INVALID_ARGUMENT; fcntl(fd, F_FULLFSYNC); return 0; }
+static unsigned flush_file(uint64_t h) {
+    int fd; File *f = file_of(h, &fd, NULL); if (!f) return R_INVALID_ARGUMENT;
+#ifdef GAME_ACNH
+    if (f->device) { pthread_mutex_lock(&device_save_lock); if (f->generation != device_store_generation) {
+        pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT;
+    }
+        unsigned result = device_sync_fd(fd, "flush-sync") ? R_INVALID_ARGUMENT : 0;
+        pthread_mutex_unlock(&device_save_lock); return result;
+    }
+#endif
+    fcntl(fd, F_FULLFSYNC); return 0;
+}
 static void close_file(uint64_t h) {
     if (runtime_romfs_handle(h)) { runtime_romfs_close(h); return; } BOTW_AOC_CLOSE(h)
     if (!file_of(h, NULL, NULL)) runtime_fail("close invalid file handle");
-    pthread_mutex_lock(&lock); int fd = files[h - FILE_BASE].fd, save = files[h - FILE_BASE].save; files[h - FILE_BASE].fd = 0; pthread_mutex_unlock(&lock);
+    int device = files[h - FILE_BASE].device;
+    if (device) pthread_mutex_lock(&device_save_lock);
+    pthread_mutex_lock(&lock); int fd = files[h - FILE_BASE].fd, save = files[h - FILE_BASE].save;
+    files[h - FILE_BASE].fd = 0; pthread_mutex_unlock(&lock);
     close(fd);
-    if (save) { save_touched(); atomic_fetch_sub(&save_writers, 1); }
+    if (device && save) {
+#ifdef GAME_ACNH
+        device_store_writers--;
+#endif
+    }
+    if (save) { save_touched_device(device); atomic_fetch_sub(&save_writers, 1); }
+    if (device) pthread_mutex_unlock(&device_save_lock);
 }
 static unsigned create_file(const char *path, int64_t size) {
-    char p[1100]; unsigned r = save_change_path(path, p, sizeof p); if (r) return r; if (size < 0) return R_INVALID_ARGUMENT;
-    int fd = open(p, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600); if (fd < 0) return errno_result();
-    int bad = ftruncate(fd, size); close(fd); return bad ? errno_result() : 0;
+    if (size < 0) return R_INVALID_ARGUMENT;
+    int held = 0; unsigned r = device_path_enter(path, 1, &held); if (r) return r;
+    char p[1100]; r = save_change_path(path, p, sizeof p, held & 1);
+    if (!r) { int fd = open(p, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+        if (fd < 0) r = errno_result();
+        else { int bad = ftruncate(fd, size); if (close(fd)) bad = -1; if (bad) r = errno_result(); }
+    }
+    device_path_leave(held);
+    return r;
 }
-static unsigned delete_file(const char *path) { char p[1100]; unsigned r = save_change_path(path, p, sizeof p); if (r) return r; return unlink(p) ? errno_result() : 0; }
-static unsigned rename_file(const char *from, const char *to) {
-    char a[1100], b[1100]; unsigned r = save_change_path(from, a, sizeof a); if (!r) r = host_path(to, b, sizeof b); if (r) return r;
-    struct stat st; if (!stat(b, &st)) return R_ALREADY_EXISTS;
-    return rename(a, b) ? errno_result() : 0;
+static unsigned delete_file(const char *path) {
+    int held = 0; unsigned r = device_path_enter(path, 1, &held); if (r) return r;
+    char p[1100]; r = save_change_path(path, p, sizeof p, held & 1);
+    if (!r && unlink(p)) r = errno_result();
+    device_path_leave(held);
+    return r;
 }
+static unsigned rename_entry(const char *from, const char *to, int directory) {
+    int held = 0; unsigned r = device_path_enter(from, 1, &held); if (r) return r;
+    if (held & 1) { const char *a = strchr(from, ':'), *b = to ? strchr(to, ':') : NULL;
+        if ((held & 1) && (!b || b - to != a - from || strncmp(from, to, (size_t)(a - from)))) r = R_INVALID_ARGUMENT;
+    }
+#ifdef GAME_ACNH
+    if (!r && !(held & 1) && to) {
+        const char *colon = strchr(to, ':');
+        if (!colon || colon[1] != '/') r = R_INVALID_PATH;
+        else {
+            size_t n = (size_t)(colon - to);
+            pthread_mutex_lock(&lock);
+            for (int i = 0; i < 16; i++)
+                if (mounts[i].kind && mounts[i].device && strlen(mounts[i].name) == n && !strncmp(mounts[i].name, to, n))
+                    r = R_INVALID_ARGUMENT;
+            pthread_mutex_unlock(&lock);
+        }
+    }
+#endif
+    char a[1100], b[1100]; if (!r) r = save_change_path(from, a, sizeof a, held & 1);
+    if (!r) r = host_path(to, b, sizeof b);
+    if (!r && directory) { struct stat st; if (stat(a, &st) || !S_ISDIR(st.st_mode)) r = R_PATH_NOT_FOUND; }
+    if (!r) { struct stat st; if (!stat(b, &st)) r = R_ALREADY_EXISTS;
+        else if (rename(a, b)) r = errno_result(); }
+    device_path_leave(held);
+    return r;
+}
+static unsigned rename_file(const char *from, const char *to) { return rename_entry(from, to, 0); }
+#ifdef GAME_ACNH
+static unsigned rename_directory(const char *from, const char *to) { return rename_entry(from, to, 1); }
+#endif
 static unsigned entry_type(int *out, const char *path) {
     if (runtime_romfs_owns(path)) return runtime_romfs_entry_type(out, path); BOTW_AOC_TYPE(out, path)
-    char p[1100]; unsigned r = host_path(path, p, sizeof p); if (r) return r; struct stat st;
-    if (!out) return R_INVALID_ARGUMENT; if (stat(p, &st)) return R_PATH_NOT_FOUND;
-    *out = S_ISDIR(st.st_mode) ? 0 : 1; return 0;
+    if (!out) return R_INVALID_ARGUMENT;
+    int held = 0; unsigned r = device_path_enter(path, 0, &held); if (r) return r;
+    char p[1100]; r = host_path(path, p, sizeof p); struct stat st;
+    if (!r && stat(p, &st)) r = R_PATH_NOT_FOUND;
+    if (!r) *out = S_ISDIR(st.st_mode) ? 0 : 1;
+    device_path_leave(held);
+    return r;
 }
 
 /* ---------- directories ---------- */
 typedef RomfsDirectoryEntry DirectoryEntry;
 _Static_assert(sizeof(DirectoryEntry) == 0x310, "nn::fs::DirectoryEntry");
 _Static_assert(offsetof(DirectoryEntry, type) == 0x304 && offsetof(DirectoryEntry, size) == 0x308, "nn::fs::DirectoryEntry fields");
-static unsigned create_directory(const char *path) { char p[1100]; unsigned r = save_change_path(path, p, sizeof p); if (r) return r; return mkdir(p, 0700) ? errno_result() : 0; }
-static unsigned delete_recursive(const char *path) { char p[1100]; unsigned r = save_change_path(path, p, sizeof p); if (r) return r; struct stat st; if (stat(p, &st)) return R_PATH_NOT_FOUND; return remove_tree(p) ? R_INVALID_ARGUMENT : 0; }
+static unsigned create_directory(const char *path) {
+    int held = 0; unsigned r = device_path_enter(path, 1, &held); if (r) return r;
+    char p[1100]; r = save_change_path(path, p, sizeof p, held & 1);
+    if (!r && mkdir(p, 0700)) r = errno_result();
+    device_path_leave(held);
+    return r;
+}
+static unsigned delete_recursive(const char *path) {
+    int held = 0; unsigned r = device_path_enter(path, 1, &held); if (r) return r;
+    char p[1100]; r = save_change_path(path, p, sizeof p, held & 1);
+    if (!r) { struct stat st; if (stat(p, &st)) r = R_PATH_NOT_FOUND;
+        else if (remove_tree(p)) r = R_INVALID_ARGUMENT; }
+    device_path_leave(held);
+    return r;
+}
+#ifdef GAME_ACNH
+/* 清空目录内容但保留目录本身；ACNH 首次存档会清空整个设备存档根目录。 */
+static unsigned clean_recursive(const char *path) {
+    int held = 0; unsigned r = device_path_enter(path, 0, &held); if (r) return r;
+    char p[1100];
+    /* device_path_enter 的写入检查不接受挂载根，这里自己开始暂存。 */
+    if (held & 1) { r = host_path(path, p, sizeof p); if (!r) r = device_stage_begin(); }
+    if (!r) r = save_change_path(path, p, sizeof p, held & 1);
+    if (!r) { struct stat st; if (stat(p, &st) || !S_ISDIR(st.st_mode)) r = R_PATH_NOT_FOUND;
+        else if (clear_tree(p)) r = R_INVALID_ARGUMENT; }
+    device_path_leave(held);
+    return r;
+}
+#endif
 static unsigned open_directory(uint64_t *out, const char *path, int mode) {
     if (runtime_romfs_owns(path)) {
 #if defined(GAME_ACNH)
@@ -612,21 +1246,41 @@ static unsigned open_directory(uint64_t *out, const char *path, int mode) {
         fprintf(stderr, "[totk] OpenDirectory on RomFS %s\n", path); runtime_fail("RomFS directory listing not implemented");
 #endif
     }
-    char p[1100]; unsigned r = host_path(path, p, sizeof p); if (r) return r;
+    int device_held = 0; unsigned r = device_path_enter(path, 0, &device_held); if (r) return r;
+    char p[1100]; r = host_path(path, p, sizeof p); if (r) { device_path_leave(device_held); return r; }
 #if defined(GAME_ACNH)
-    uint32_t bits=(uint32_t)mode;if (!out || !(bits&3) || (bits&~(1u|2u|0x80000000u))) return R_INVALID_ARGUMENT;
+    uint32_t bits=(uint32_t)mode;if (!out || !(bits&3) || (bits&~(1u|2u|0x80000000u))) {
+        device_path_leave(device_held); return R_INVALID_ARGUMENT;
+    }
 #else
-    if (!out || mode < 1 || mode > 3) return R_INVALID_ARGUMENT;
+    if (!out || mode < 1 || mode > 3) { device_path_leave(device_held); return R_INVALID_ARGUMENT; }
 #endif
-    DIR *d = opendir(p); if (!d) return errno_result();
+    if (strlen(p) >= sizeof dirs[0].path) {
+        device_path_leave(device_held);
+        return R_INVALID_PATH;
+    }
+    DIR *d = opendir(p); if (!d) { device_path_leave(device_held); return errno_result(); }
     pthread_mutex_lock(&lock);
-    for (int i = 0; i < NDIRS; i++) if (!dirs[i].dir) { dirs[i].dir = d; dirs[i].mode = mode; strcpy(dirs[i].path, p); *out = DIR_BASE + (uint64_t)i; pthread_mutex_unlock(&lock); return 0; }
-    pthread_mutex_unlock(&lock); runtime_fail("host directory handle table full");
+    for (int i = 0; i < NDIRS; i++) if (!dirs[i].dir) {
+        dirs[i].dir = d; dirs[i].mode = mode; dirs[i].device = device_held & 1;
+#ifdef GAME_ACNH
+        dirs[i].generation = (device_held & 1) ? device_store_generation : 0;
+#endif
+        strcpy(dirs[i].path, p); *out = DIR_BASE + (uint64_t)i;
+        pthread_mutex_unlock(&lock); device_path_leave(device_held); return 0;
+    }
+    pthread_mutex_unlock(&lock); device_path_leave(device_held);
+    runtime_fail("host directory handle table full");
 }
 static unsigned read_directory(int64_t *count, DirectoryEntry *out, uint64_t h, int64_t max) {
     if (runtime_romfs_directory_handle(h)) return runtime_romfs_read_directory(count,out,h,max);
     if (h < DIR_BASE || h >= DIR_BASE + NDIRS || !count || max < 0 || (!out && max)) return R_INVALID_ARGUMENT;
     Dir *d = &dirs[h - DIR_BASE]; if (!d->dir) return R_INVALID_ARGUMENT;
+#ifdef GAME_ACNH
+    if (d->device) { pthread_mutex_lock(&device_save_lock); if (d->generation != device_store_generation) {
+        pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT;
+    } }
+#endif
     int64_t n = 0; struct dirent *e;
     while (n < max && (e = readdir(d->dir))) {
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") || strlen(e->d_name) > 768) continue;
@@ -640,13 +1294,38 @@ static unsigned read_directory(int64_t *count, DirectoryEntry *out, uint64_t h, 
         memset(&out[n], 0, sizeof *out); strcpy(out[n].name, e->d_name); out[n].type = is_dir ? 0 : 1; out[n].size = is_dir ? 0 : st.st_size; n++;
 #endif
     }
-    *count = n; return 0;
+    *count = n;
+#ifdef GAME_ACNH
+    if (d->device) pthread_mutex_unlock(&device_save_lock);
+#endif
+    return 0;
 }
 static void close_directory(uint64_t h) {
     if (runtime_romfs_directory_handle(h)) { runtime_romfs_close_directory(h); return; }
     if (h < DIR_BASE || h >= DIR_BASE + NDIRS || !dirs[h - DIR_BASE].dir) runtime_fail("close invalid directory handle");
     pthread_mutex_lock(&lock); closedir(dirs[h - DIR_BASE].dir); dirs[h - DIR_BASE].dir = NULL; pthread_mutex_unlock(&lock);
 }
+#ifdef GAME_ACNH
+/* 与读取位置无关，统计句柄打开模式下的全部条目。RomFS 游标不记总数，游戏只在联网证书目录上调用。 */
+static unsigned directory_entry_count(int64_t *out, uint64_t h) {
+    if (runtime_romfs_directory_handle(h) || !out || h < DIR_BASE || h >= DIR_BASE + NDIRS) return R_INVALID_ARGUMENT;
+    pthread_mutex_lock(&lock); Dir d = dirs[h - DIR_BASE]; pthread_mutex_unlock(&lock);
+    if (!d.dir) return R_INVALID_ARGUMENT;
+    if (d.device) { pthread_mutex_lock(&device_save_lock); if (d.generation != device_store_generation) {
+        pthread_mutex_unlock(&device_save_lock); return R_INVALID_ARGUMENT;
+    } }
+    DIR *it = opendir(d.path); unsigned r = it ? 0 : errno_result(); int64_t n = 0; struct dirent *e;
+    while (it && (e = readdir(it))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") || strlen(e->d_name) > 768) continue;
+        char child[2048]; snprintf(child, sizeof child, "%s/%s", d.path, e->d_name); struct stat st; if (stat(child, &st)) continue;
+        if ((uint32_t)d.mode & (S_ISDIR(st.st_mode) ? 1u : 2u)) n++;
+    }
+    if (it) closedir(it);
+    if (d.device) pthread_mutex_unlock(&device_save_lock);
+    if (!r) *out = n;
+    return r;
+}
+#endif
 /* The fs priority only orders I/O inside the system fs process; host I/O is unordered. */
 static void set_priority(int priority) { (void)priority; }
 
@@ -705,6 +1384,8 @@ void *runtime_fs_host_override(const char *name) {
         {"_ZN2nn2fs6CommitEPKPKci", commit_multiple},
         {"_ZN2nn2fs6CommitEPKcRKNS0_12CommitOptionE", commit_with_options},
         {"_ZN2nn2fs20ExtendDeviceSaveDataEll", extend_device_save_data},
+        {"_ZN2nn2fs25CleanDirectoryRecursivelyEPKc", clean_recursive}, {"_ZN2nn2fs15RenameDirectoryEPKcS2_", rename_directory},
+        {"_ZN2nn2fs22GetDirectoryEntryCountEPlNS0_15DirectoryHandleE", directory_entry_count},
 #endif
         {"_ZN2nn2fs21MountTemporaryStorageEPKc", mount_temp}, {"_ZN2nn2fs7UnmountEPKc", unmount}, {"_ZN2nn2fs6CommitEPKc", commit},
 #ifdef GAME_BOTW

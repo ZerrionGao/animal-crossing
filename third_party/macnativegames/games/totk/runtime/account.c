@@ -47,11 +47,34 @@ static void open_preselected(UserHandle *out){if(!preselected(out))runtime_fail(
 static uint32_t list_users(int *count,Uid *out,int max){initialize();if(!count||(max>0&&!out))return 0x7c67;*count=0;if(max>0){out[0]=local;*count=1;}return 0;}
 #endif
 #ifdef GAME_ACNH
+/* 与原 SDK 一样写满 max 个槽位，空槽为无效 Uid（全 0）：读档时 main+0xcaea34 用未清零的 8 项栈数组接收，
+   再对每个非零项调用 olsc 关闭云备份；只写第 0 项会把栈上残留当成其他用户。 */
 static uint32_t list_users_acnh(int *count,Uid *out,int max){
  if(!count||(max>0&&!out))return 0x7c67;
  initialize();
  *count=1;
- if(max>0)out[0]=local;
+ for(int i=0;i<max;i++)out[i]=i?(Uid){0,0}:local;
+ return 0;
+}
+/* 本地句柄在 +0x10 放的是序号，原 SDK 却把它当成网络账号对象。这些查询改为离线失败，避免空指针。 */
+static uint32_t network_unavailable(void){
+ static int said; if(!said){said=1;fprintf(stderr,"[acnh] 没有网络账号，继续离线\n");}
+ return 0x7c67;
+}
+static uint32_t network_service_available(bool *out,const UserHandle *handle){(void)handle;if(out)*out=false;return network_unavailable();}
+static uint32_t ensure_network_service(const UserHandle *handle){(void)handle;return network_unavailable();}
+static uint32_t get_network_id(uint64_t *out,const UserHandle *handle){(void)handle;if(out)*out=0;return network_unavailable();}
+static uint32_t load_network_token(unsigned long *n,char *buf,unsigned long cap,const UserHandle *handle){(void)handle;(void)buf;(void)cap;if(n)*n=0;return network_unavailable();}
+static uint32_t ensure_network_token_async(void *async,const UserHandle *handle){(void)async;(void)handle;return network_unavailable();}
+/* 好友库会列出已打开用户。原实现要向账号服务取名单，这里服务指针是空的。 */
+static uint32_t list_open_users(int *count,Uid *out,int max){
+ if(!count||(max>0&&!out))return 0x7c67;
+ initialize();
+ lock_acquire();
+ int open=0;for(unsigned i=0;i<64;i++)if(tokens[i]){open=1;break;}
+ lock_release();
+ *count=open;for(int i=0;i<max;i++)out[i]=!i&&open?local:(Uid){0,0};
+ static int said;if(!said){said=1;fprintf(stderr,"[acnh] 已打开用户 %d\n",open);}
  return 0;
 }
 #endif
@@ -65,6 +88,12 @@ void *runtime_account_override(const char *name){
 #endif
 #ifdef GAME_ACNH
  ,{"_ZN2nn7account12ListAllUsersEPiPNS0_3UidEi",list_users_acnh}
+ ,{"_ZN2nn7account13ListOpenUsersEPiPNS0_3UidEi",list_open_users}
+ ,{"_ZN2nn7account32IsNetworkServiceAccountAvailableEPbRKNS0_10UserHandleE",network_service_available}
+ ,{"_ZN2nn7account36EnsureNetworkServiceAccountAvailableERKNS0_10UserHandleE",ensure_network_service}
+ ,{"_ZN2nn7account26GetNetworkServiceAccountIdEPNS0_23NetworkServiceAccountIdERKNS0_10UserHandleE",get_network_id}
+ ,{"_ZN2nn7account37LoadNetworkServiceAccountIdTokenCacheEPmPcmRKNS0_10UserHandleE",load_network_token}
+ ,{"_ZN2nn7account42EnsureNetworkServiceAccountIdTokenCacheAsyncEPNS0_12AsyncContextERKNS0_10UserHandleE",ensure_network_token_async}
 #endif
  };
  for(unsigned i=0;i<sizeof(entries)/sizeof(*entries);i++)if(!strcmp(name,entries[i].name))return entries[i].fn;return NULL;

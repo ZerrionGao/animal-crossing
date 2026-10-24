@@ -59,11 +59,20 @@ int main(void) {
     assert(listed.lo || listed.hi);
     check_persistent_uid(&listed);
 
+    /* 读档时游戏用未清零的 8 项数组接收，空槽必须是无效 Uid（全 0）。 */
     for (int i = 0; i < 8; i++) values[i] = (ProbeUid){0xa1a1a1a1a1a1a1a1ULL, 0xb2b2b2b2b2b2b2b2ULL};
     count = -7;
     assert(list(&count, values, 8) == 0 && count == 1);
     assert(values[0].lo == listed.lo && values[0].hi == listed.hi);
-    check_canaries(values);
+    for (int i = 1; i < 8; i++) assert(!values[i].lo && !values[i].hi);
+
+    for (int i = 0; i < 8; i++) values[i] = (ProbeUid){0xa1a1a1a1a1a1a1a1ULL, 0xb2b2b2b2b2b2b2b2ULL};
+    count = -7;
+    assert(list(&count, values, 3) == 0 && count == 1);
+    assert(values[0].lo == listed.lo && values[0].hi == listed.hi);
+    assert(!values[1].lo && !values[1].hi && !values[2].lo && !values[2].hi);
+    for (int i = 3; i < 8; i++)
+        assert(values[i].lo == 0xa1a1a1a1a1a1a1a1ULL && values[i].hi == 0xb2b2b2b2b2b2b2b2ULL);
 
     count = -7;
     assert(list(NULL, values, 8) != 0);

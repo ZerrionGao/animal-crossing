@@ -24,6 +24,7 @@ static int exit_close_requested;
 static int exit_close_queued;
 static int exit_close_delivered;
 static int exit_close_deferred;
+static int exit_close_started;
 static unsigned char inactivity_extended_enabled;
 #endif
 __attribute__((constructor)) static void started(void) { start_ns = runtime_now_ns(); }
@@ -79,13 +80,41 @@ void runtime_oe_leave_exit_request_section(void) {
     if (!exit_section_depth) { pthread_mutex_unlock(&lock); runtime_fail("oe exit section depth underflow"); }
     int released = --exit_section_depth == 0 && exit_close_requested;
     pthread_mutex_unlock(&lock);
-    if (released) fprintf(stderr, "[totk] ACNH exit request handling section released; guest process exit is still pending\n");
+    if (released) fprintf(stderr, "[totk] ACNH exit request handling section released; the process ends once save data is idle\n");
+}
+/* 与 Switch 关闭软件一致：游戏在退出请求处理区内（存档时）就等它离开，不在区内则直接结束，不运行客体收尾。
+   结束前另等宿主存档空闲，最多 15 秒；设备存档按槽提交，放弃时只丢失尚未提交的这一次。 */
+static void *exit_when_released(void *unused) {
+    (void)unused;
+    uint64_t busy_since = 0;
+    int busy;
+    /* 决定结束后一直持锁到 _exit，游戏不能再进入退出请求处理区。 */
+    for (;;) {
+        pthread_mutex_lock(&lock);
+        busy = 0;
+        if (exit_section_depth) busy_since = 0;
+        else if (!(busy = runtime_fs_save_busy())) break;
+        else if (!busy_since) busy_since = runtime_now_ns();
+        else if (runtime_now_ns() - busy_since >= 15000000000ull) break;
+        pthread_mutex_unlock(&lock);
+        usleep(20000);
+    }
+    fprintf(stderr, "[totk] ACNH exit: save data %s; process ends\n",
+            busy ? "still being written after 15 s (the uncommitted save is lost)" : "idle");
+    _exit(0);
 }
 int runtime_oe_request_exit_notification(void) {
     pthread_mutex_lock(&lock);
     exit_close_requested = 1;
     int queued = queue_exit_close_locked();
+    int start = !exit_close_started;
+    exit_close_started = 1;
     pthread_mutex_unlock(&lock);
+    if (start) {
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, exit_when_released, NULL)) runtime_fail("start ACNH exit thread");
+        pthread_detach(thread);
+    }
     return queued;
 }
 static void inactivity_extended(unsigned char on) {
