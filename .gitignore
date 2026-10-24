@@ -4,6 +4,8 @@
 *.xci
 *.nsp
 work/
+assets/
+codex-session-*.md
 __pycache__/
 *.py[cod]
 .venv/

@@ -1,0 +1,83 @@
+{
+  "stage": "C",
+  "status": "verified",
+  "date": "2026-10-24",
+  "scope": "Mac 离线可玩闭环：新岛命名、存档、完全退出、重启读档、跨天、画面与音频。云备份明确不在项目范围；本阶段不等于纹理正确、完整可玩或 iPhone。",
+  "upstream": {
+    "name": "MacNativeGames",
+    "commit": "dfa7ec426f8b37798073a108ede1504c827d8af0"
+  },
+  "version": "3.0.0",
+  "independent_review": {
+    "status": "pass",
+    "date": "2026-10-24",
+    "prior_should_fix": [
+      "pctl_service only allows 1001/1018",
+      "ClearRestoreFlag clears restore_pending on empty commit",
+      "directory symbols GAME_ACNH only",
+      "runtime_fs_save_busy while device save lock held",
+      "nested MSL .sample overlapping edits fail",
+      "GAME_ACNH skips shader-libs prebuilt",
+      "docs match exit and NGC write-through"
+    ],
+    "c_paths": [
+      "ListAllUsers zero empty slots",
+      "olsc cmd14 local backup switch",
+      "nifm cmd21 GetAppletInfo offline failure",
+      "applet exit waits for save idle",
+      "GetNpadControllerColor 0x4b8ca"
+    ],
+    "blocking_issues": 0,
+    "non_blocking": [
+      "pctl evidence header previously said only pctl was registered",
+      "no concurrent probe for save-busy under lock",
+      "shader-libs skip has no dedicated runtime test"
+    ]
+  },
+  "fresh_verification": {
+    "unit_tests_run": 120,
+    "unit_tests_passed": 120,
+    "skipped": 1,
+    "command": ".venv/bin/python -m unittest discover -s tests -p 'test_*.py'"
+  },
+  "user_play": {
+    "new_island_naming": "confirmed",
+    "save": "confirmed",
+    "exit_restart_load": "confirmed twice",
+    "cross_day": "confirmed after Mac date set to 2026-10-24",
+    "video_audio": "confirmed",
+    "keyboard_mouse": "confirmed",
+    "backup_setting_no_abort": "confirmed; nifm GetAppletInfo returned 0x8986e"
+  },
+  "play_log": {
+    "path": "work/acnh/3.0.0/boot-first-save.log",
+    "fail_unimplemented_break_sigsegv": 0,
+    "last_frame": 22800,
+    "footprint_mib_max": 2276,
+    "footprint_mib_last": 2258,
+    "drv_cache_hit": 0,
+    "drv_cache_miss": 31211,
+    "texture_plan_verified": 0,
+    "audio_underruns": 0,
+    "opened_services": [
+      "nifm:u",
+      "audren:u",
+      "friend:u",
+      "bcat:u",
+      "set",
+      "ngc:u",
+      "olsc:u",
+      "pctl",
+      "pctl:s",
+      "pctl:a",
+      "pctl:r"
+    ]
+  },
+  "remaining": [
+    "B2 inventory written (docs/implementation/acnh-b2-unimplemented-inventory.md); checkbox pending independent review",
+    "texture correctness not verified",
+    "NgWord2 similar-form and delimited b2 not wired",
+    "Mac app prototype at work/acnh/3.0.0/Animal Crossing New Horizons.app (ad-hoc, not store)",
+    "D iPhone"
+  ]
+}
