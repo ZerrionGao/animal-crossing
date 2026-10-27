@@ -213,8 +213,8 @@ static void initialize_mouse(void){pthread_mutex_lock(&inputLock);mouseReady=tru
 static void initialize_keyboard(void){pthread_mutex_lock(&inputLock);keyboardReady=true;pthread_mutex_unlock(&inputLock);}
 static int mouse_states(MouseState *out,int max){if(max<=0)return 0;if(!out)runtime_fail("mouse output pointer");pthread_mutex_lock(&inputLock);if(!mouseReady)runtime_fail("mouse used before InitializeMouse");*out=(MouseState){.sampling=++sample};pthread_mutex_unlock(&inputLock);return 1;}
 static void keyboard_state(KeyboardState *out){if(!out)runtime_fail("keyboard output pointer");pthread_mutex_lock(&inputLock);if(!keyboardReady)runtime_fail("keyboard used before InitializeKeyboard");*out=(KeyboardState){.sampling=++sample};pthread_mutex_unlock(&inputLock);}
-/* Switch TouchScreenState<N>：16 字节头部加 N 个 40 字节触点记录，布局依据 libnx HidTouchState。Mac 没有触摸屏，初始化后提供一个无触点采样。 */
-#if defined(GAME_ACNH) && TARGET_OS_OSX
+/* Switch TouchScreenState<N>：16 字节头部加 N 个 40 字节触点记录，布局依据 libnx HidTouchState。桌面端没有触摸屏；iOS 手指输入由屏幕手柄消费，游戏 API 返回无直接触点采样。 */
+#if defined(GAME_ACNH) && (TARGET_OS_OSX || TARGET_OS_IPHONE)
 typedef struct{int64_t sampling;int32_t count;uint32_t reserved;uint8_t touches[16*40];} TouchScreenState16;
 typedef struct{int64_t sampling;int32_t count;uint32_t reserved;uint8_t touches[40];} TouchScreenState1;
 _Static_assert(sizeof(TouchScreenState16)==656&&sizeof(TouchScreenState1)==56,"touch-screen state ABI");
@@ -258,7 +258,7 @@ void *runtime_input_override(const char *name){
  {"_ZN2nn3hid21ShowControllerSupportEPNS0_27ControllerSupportResultInfoERKNS0_20ControllerSupportArgE",show_controller_support},
  {"_ZN2nn3hid15InitializeMouseEv",initialize_mouse},{"_ZN2nn3hid18InitializeKeyboardEv",initialize_keyboard},
  {"_ZN2nn3hid14GetMouseStatesEPNS0_10MouseStateEi",mouse_states},{"_ZN2nn3hid16GetKeyboardStateEPNS0_13KeyboardStateE",keyboard_state}
-#if defined(GAME_ACNH) && TARGET_OS_OSX
+#if defined(GAME_ACNH) && (TARGET_OS_OSX || TARGET_OS_IPHONE)
  ,{"_ZN2nn3hid21InitializeTouchScreenEv",initialize_touch},{"_ZN2nn3hid20GetTouchScreenStatesILm16EEEiPNS0_16TouchScreenStateIXT_EEEi",touch_states_16},
  {"_ZN2nn3hid19GetTouchScreenStateILm1EEEvPNS0_16TouchScreenStateIXT_EEE",touch_state_1}
 #endif

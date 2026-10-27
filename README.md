@@ -31,7 +31,7 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 `prepare` 提取 base/update ExeFS，构建固定 hactool 并合并更新 RomFS，验证六层 IVFC 及已锁定版本的哈希。已存在的输出先验证，不直接覆盖。`rewrite` 只改写指定版本三模块，不带 D2R 游戏功能补丁；`verify` 运行结构校验和带负向对照的 Unicorn 差分验证。`runtime/probe` 验证装载器；`boot` 核验验证记录、字体和资源后执行游戏，使用独立的 `work/acnh/3.0.0/test-profile` 存档目录。
 
-已捕获机场开场及岛上集合的历史画面，人物、帐篷和水果有颜色；缺省 `make boot` 仍不打开 GPU 提交。2026-10-23 续作审查发现保存事务和部分服务存在误报成功的问题，已修复。阶段 C（命名、存档、退出重启、跨天、画面音频）已由用户实机确认，并经独立审查与新鲜测试后勾选；这不等于完整可玩性或纹理正确性已验收。B2 清单已写出但复选框未勾选。本机离线 Mac App 原型可用 `build.py package` 生成，不含 keys、不签名上架；iPhone 仍未开始。见[实施记录](docs/implementation/acnh-macos-plan.md)与[阶段 C 证据](docs/implementation/stage-c-evidence.json)。
+已捕获机场开场及岛上集合的历史画面，人物、帐篷和水果有颜色；缺省 `make boot` 仍不打开 GPU 提交。2026-10-23 续作审查发现保存事务和部分服务存在误报成功的问题，已修复。阶段 C（命名、存档、退出重启、跨天、画面音频）已由用户实机确认，并经独立审查与新鲜测试后勾选；这不等于完整可玩性或纹理正确性已验收。B2 清单已写出但复选框未勾选。本机离线 Mac App 原型可用 `build.py package` 生成，不含 keys、不签名上架。iPhone D 阶段已开始：iOS 工程和完整 unsigned IPA 构建成功，Xcode 开发者账户/描述文件配置与真机验收仍待完成，D 保持未勾选。见[实施记录](docs/implementation/acnh-macos-plan.md)与[阶段 C 证据](docs/implementation/stage-c-evidence.json)。
 
 `boot` 的窗口关闭和系统 Quit 按 Switch 关闭软件的语义结束进程：游戏在存档用的退出请求处理区内时等它离开，再等存档空闲（最多 15 秒）后结束。
 

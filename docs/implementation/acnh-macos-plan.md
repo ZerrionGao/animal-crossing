@@ -94,4 +94,18 @@ IPC 复审发现的描述符对齐与普通参数截断问题已修复，新增�
 
 夹近平面之后，第 600 帧的交换链截图是机场柜台、豆狸兄弟和对话「Good afternoon! We're so excited to have」，已对照画面目视核对。诊断时限停在约第 2400 帧，没有新的 SDK Break。日志 `work/acnh/3.0.0/boot-clipz.log`，截图 `work/acnh/3.0.0/frame-clipz-600.png`。触达的未实现 SVC/IPC/NVN 已整理为 [B2 清单](acnh-b2-unimplemented-inventory.md)；复选框须独立审查与新鲜验证后才能勾选。
 
-2026-10-23 恢复现场后发现后续未提交改动及户外集合截图；旧诊断上下文不再作为当前停止点。保存事务和服务误报成功问题已修复。阶段 C 于 2026-10-24 勾选，见 [阶段 C 证据](stage-c-evidence.json)。B2 清单已写出，复选框未勾选。2026-10-24 打出本机离线 Mac App 原型：`work/acnh/3.0.0/Animal Crossing New Horizons.app`，Ad-hoc 签名，`--check` 通过；不含 keys，不上架。打开 App 进岛后因 `IParentalControlService` 命令 1（`Initialize`）未实现退出，与读档无关；已按空请求形状返回结果 0 并重新打包。D（iPhone）仍未开始。
+## iPhone D 阶段进度（未验收）
+
+- 已增加 `games/acnh/ios` 的 UIKit/Metal 工程、ACNH 专用 iOS 构建脚本，以及验证版 loader 的 `export-ios` 模式。
+- iOS arm64 Opus/libvpx 依赖、loader 导出段和 906 个 ACNH Metal 着色器库均已生成；Xcode unsigned iOS 构建通过。完整 unsigned IPA 为 `work/acnh/3.0.0/ACNH-iPhone-unsigned.ipa`，SHA-256 `83a7a81948dcd23583d2529476a983735660a414204a7e6a0deec2180b74fb7b`，包含本机 3.0.0 RomFS、字体、NgWord2 资源和着色器。
+- Xcode 自动签名分别以本机两个 Apple Development 团队重试，均因 Xcode 未登录该团队且没有 `org.macnativegames.acnh` 描述文件而失败。unsigned IPA 不可安装；D 阶段的签名安装、首次启动、触控/手柄、存档、前后台恢复和资源验收仍未完成。
+- 开发者账户配置后，使用 `games/acnh/ios/tools/build_ipa.py --team-id <已登录团队 ID>` 生成设备签名 IPA，再按 D 门禁逐项真机验证。D 复选框保持未勾选。
+- 2026-10-25 独立审查后，资源改为 Xcode folder resource 并由 Xcode 最终签名；打包脚本不再复制资源后重签，多团队时必须指定 `--team-id`。运行时已连接 NgWord2 资源路径，存档/缓存移入私有 `Application Support`，触控失焦会清零；后台存档等待有 task/epoch/generation 保护并通过最新 arm64 unsigned 构建。构建产物 `work/acnh/3.0.0/build/ios-derived-unsigned-review/Build/Products/Release-iphoneos/ACNH.app` 已核对包含 RomFS 和 NgWord2 common 表；仅有 `UIRequiresFullScreen` 弃用警告，未签名、未安装。
+- 首次人物名/岛名输入仍待验证：ACNH main 没有 `swkbd`/applet 动态导入，不能仅凭 SDK 存在 `ShowKeyboard` 就安全接入；需在真实新岛命名路径捕获调用并核实 ABI。D 保持未勾选。
+- 2026-10-25 已使用团队 `XLC3W3C265` 完成设备签名和 iPhone 更新安装。修正 iOS profile 相对路径后，首次启动进入移居套餐柜台对话，约 20 秒后进程仍存活，日志确认 `deviceSave` 挂载。命名、实际存档回验及前后台/锁屏恢复尚未完成。证据：`work/acnh/3.0.0/ios-package-logs/device-after-profile-relative-first-launch-20261025T0305Z.{log,png}`。
+- 同日已合并 AppIcon 与保持原比例的柔化背景填边；本机 Metal 离屏检查 3/3、Release 构建、签名及 IPA CRC 校验通过。签名包 `work/acnh/3.0.0/ACNH-iPhone-signed-XLC3W3C265-20261025T0526Z-icon-backdrop.ipa` 已更新安装，真机主屏确认动森图标，柜台对话画面确认左右柔化暗化填边、前景完整、屏幕手柄可见。截图和运行日志在 `work/acnh/3.0.0/ios-ui-checks/{icon-home.png,game-backdrop.png,device-backdrop.log}`。独立审查未发现功能性缺陷；Metal4 的上下留边、非零 crop、MetalFX 组合尚无自动化回归覆盖，不能由本次横屏画面推定通过。
+- 2026-10-25 按用户要求暂停画面调整，优先排查发热。旧包 Metal 跟踪约 16.7 秒内有 10,949 次约 1 ms 的额外 Compute 事件，累计 10.934 秒，与默认启用的 GPU 保活自旋核及日志相互印证；该核不产生游戏数据。ACNH iOS 入口现默认设置 `TOTK_GPU_KEEPALIVE=0`，保留显式 `=1` 对照，同时接通系统热状态读数（0 正常、1 Fair、2 Serious、3 Critical，非摄氏度）。没有改变画面、分辨率或目标帧率。独立审查、Release 构建、签名及 IPA CRC 通过；`work/acnh/3.0.0/ACNH-iPhone-signed-XLC3W3C265-20261025T0623Z-heat.ipa` 已更新安装，正常启动的 Metal 跟踪确认上述保活事件为 0，柜台稳态仍约 60 FPS。
+- 发热证据在 `work/acnh/3.0.0/ios-heat-checks/`：`keepalive-metal-comparison-summary.{json,md}`、`no-keepalive-cpu-profile-summary.{json,md}`、`candidate-runtime-validation.json` 和原始 trace/日志。CPU 采样未证实可安全删除的忙等热点，不能仅凭线程条目数缩池。拔线后最初 5 分钟的 65 个 300 帧窗口，其帧时间 p50 中位数为 16.67 ms，热状态一度由 Serious 回落到 Fair；约 8 分钟时又回到 Serious，用户仍报告明显发热，因此第一轮未完成发热验收。玩家已从柜台推进入岛，后段绘制量增大，不能把整段当作固定场景对照。Power Profiler 保存失败，没有瓦特或摄氏度证据，不能量化降温或节能收益。下一步核对 HLE 的 60 Hz 逻辑时钟与 Metal 显示链实际 120 Hz 的节拍基准；在确认进度可安全保存和重启前，不执行启动参数对照。D 整体验收保持未完成。
+- 节拍复核已通过本机源码探针复现不一致：物理 120 Hz、mode 1、游戏 interval=2 时，显示链两拍为 16.67 ms，但 HLE 周期为 33.33 ms；显式 `DM_PRESENT_HZ=60` 后两者一致。见 `work/acnh/3.0.0/ios-heat-checks/clock_policy_probe.{py,log}`。这只验证源码节拍模型，不证明真机游戏速度、输入、音画或降温结果；尚未永久修改节拍默认值，也未重启当前入岛进程。
+
+2026-10-23 恢复现场后发现后续未提交改动及户外集合截图；旧诊断上下文不再作为当前停止点。保存事务和服务误报成功问题已修复。阶段 C 于 2026-10-24 勾选，见 [阶段 C 证据](stage-c-evidence.json)。B2 清单已写出，复选框未勾选。2026-10-24 打出本机离线 Mac App 原型：`work/acnh/3.0.0/Animal Crossing New Horizons.app`，Ad-hoc 签名，`--check` 通过；不含 keys，不上架。打开 App 进岛后因 `IParentalControlService` 命令 1（`Initialize`）未实现退出，与读档无关；已按空请求形状返回结果 0 并重新打包。D（iPhone）当时仍未开始；当前进度见上节。

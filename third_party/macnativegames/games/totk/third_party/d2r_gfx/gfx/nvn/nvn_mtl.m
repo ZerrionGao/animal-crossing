@@ -551,7 +551,7 @@ void mtl_init(void) {
     for (int i = 0; i < 3; i++) {
         g_present_args[i] = [g_dev newArgumentTableWithDescriptor:pad error:&ate];
         if (!g_present_args[i]) MDIE("建立出图 argument table[%d] 失败：%s", i, ate.localizedDescription.UTF8String);
-        g_present_uv[i] = [g_dev newBufferWithLength:sizeof(float) * 8 options:MTLResourceStorageModeShared];
+        g_present_uv[i] = [g_dev newBufferWithLength:sizeof(float) * 16 options:MTLResourceStorageModeShared];
         if (!g_present_uv[i]) MDIE("建立出图 UV 缓冲[%d] 失败", i);
         res_add(g_present_uv[i]);
         if (g_present_probe) {
@@ -11080,6 +11080,9 @@ void mtl_exec(const uint8_t *p) {
 // ---------- 出图：交换链贴图画到 CAMetalLayer；可选截图 ----------
 // ---------- Present: draw the swapchain texture to the CAMetalLayer; optional screenshot ----------
 static id<MTLRenderPipelineState> g_blit_pso; static MTLPixelFormat g_blit_fmt;
+#if defined(GAME_ACNH) && TARGET_OS_IPHONE
+static id<MTLRenderPipelineState> g_acnh_background_pso;
+#endif
 static id<MTLSamplerState> g_blit_samp;
 static uint64_t g_present_n;
 uint64_t mtl_present_count(void) { return g_present_n; }   // 实际出图次数（发热归因 DM_HEAT 算出图帧率） | Actual present count (heat attribution DM_HEAT computes the present frame rate)
@@ -11543,7 +11546,11 @@ static void present_pipeline(MTLPixelFormat format) {
             "struct V { float4 p [[position]]; float2 uv; };\n"
             "vertex V vs(uint id [[vertex_id]]) { float2 uv = float2((id << 1) & 2, id & 2); V o; o.p = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1); o.uv = uv; return o; }\n"
             "struct Crop { float4 rect; float4 edge; };\n"
-            "fragment float4 fs(V in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]], constant Crop& c [[buffer(0)]]) { return t.sample(s, clamp(in.uv * c.rect.zw + c.rect.xy, c.edge.xy, c.edge.zw)); }\n";
+            "fragment float4 fs(V in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]], constant Crop& c [[buffer(0)]]) { return t.sample(s, clamp(in.uv * c.rect.zw + c.rect.xy, c.edge.xy, c.edge.zw)); }\n"
+#if defined(GAME_ACNH) && TARGET_OS_IPHONE
+            "fragment float4 background(V in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]], constant Crop& c [[buffer(0)]]) { float3 color=0; for(int y=-2;y<=2;y++) for(int x=-2;x<=2;x++) { float2 uv=in.uv*c.rect.zw+c.rect.xy+float2(x,y)*c.rect.zw*0.0125; color+=t.sample(s,clamp(uv,c.edge.xy,c.edge.zw)).rgb*float((3-abs(x))*(3-abs(y))); } return float4(color*(0.48/81.0),1); }\n"
+#endif
+            ;
         NSError *e = nil;
         id<MTLLibrary> lib = [g_dev newLibraryWithSource:@(src_msl) options:nil error:&e];
         if (!lib) MDIE("出图着色器编译失败 %s", e.localizedDescription.UTF8String);
@@ -11552,6 +11559,11 @@ static void present_pipeline(MTLPixelFormat format) {
         pd.colorAttachments[0].pixelFormat = format;
         g_blit_pso = [g_dev newRenderPipelineStateWithDescriptor:pd error:&e];
         if (!g_blit_pso) MDIE("出图管线失败 %s", e.localizedDescription.UTF8String);
+#if defined(GAME_ACNH) && TARGET_OS_IPHONE
+        pd.fragmentFunction = [lib newFunctionWithName:@"background"];
+        g_acnh_background_pso = [g_dev newRenderPipelineStateWithDescriptor:pd error:&e];
+        if (!g_acnh_background_pso) MDIE("ACNH 背景管线失败 %s", e.localizedDescription.UTF8String);
+#endif
         g_blit_fmt = format;
         MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new]; sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear; sd.supportArgumentBuffers = YES;
         g_blit_samp = [g_dev newSamplerStateWithDescriptor:sd];
@@ -11699,6 +11711,25 @@ static int present_stretch(void) {
     if (on < 0) { const char *e = getenv("TOTK_STRETCH"); on = e && !strcmp(e, "1"); }
     return on || (runtime_aspect_now && runtime_aspect_now() > 0);   // key 4 / TOTK_ASPECT: runtime/aspect_patch.h
 }
+#if defined(GAME_ACNH) && TARGET_OS_IPHONE
+/* 只在留边区域画柔化背景，前景仍保持完整比例；有效区边缘钳制避免采到交换链外的黑纹素。 */
+static unsigned acnh_background(float uv[8], MTLScissorRect bars[4], MTLViewport vp,
+                                NSUInteger dw, NSUInteger dh, NSUInteger tw, NSUInteger th,
+                                NSUInteger cx, NSUInteger cy, NSUInteger cw, NSUInteger ch) {
+    double scale = fmax((double)dw / cw, (double)dh / ch);
+    double w = dw / scale, h = dh / scale;
+    float values[8] = {(cx + (cw - w) / 2) / tw, (cy + (ch - h) / 2) / th, w / tw, h / th,
+                      (cx + 0.5) / tw, (cy + 0.5) / th, (cx + cw - 0.5) / tw, (cy + ch - 0.5) / th};
+    memcpy(uv, values, sizeof values);
+    NSUInteger left = vp.originX, top = vp.originY, right = vp.originX + vp.width, bottom = vp.originY + vp.height;
+    unsigned count = 0;
+    if (left) bars[count++] = (MTLScissorRect){0, 0, left, dh};
+    if (right < dw) bars[count++] = (MTLScissorRect){right, 0, dw - right, dh};
+    if (top) bars[count++] = (MTLScissorRect){left, 0, right - left, top};
+    if (bottom < dh) bars[count++] = (MTLScissorRect){left, bottom, right - left, dh - bottom};
+    return count;
+}
+#endif
 static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4], int fps_overlay) {
     NSUInteger cx = 0, cy = 0, cw = src.width, ch = src.height;
     if (crop && (crop[2] || crop[3])) {
@@ -11721,6 +11752,10 @@ static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTex
     double dw = dst.width, dh = dst.height, s = fmin(dw / cw, dh / ch);
     MTLViewport vp = {floor((dw - cw * s) / 2), floor((dh - ch * s) / 2), round(cw * s), round(ch * s), 0, 1};
     if (fabs((dw / dh) / ((double)cw / ch) - 1) < 0.01 || present_stretch()) vp = (MTLViewport){0, 0, dw, dh, 0, 1};
+#if defined(GAME_ACNH) && TARGET_OS_IPHONE
+    /* 用取整后的尺寸居中，避免浮点误差把贴边视口起点算成 -1。 */
+    vp.originX = floor((dw - vp.width) / 2); vp.originY = floor((dh - vp.height) / 2);
+#endif
     int full = vp.originX == 0 && vp.originY == 0 && vp.width == dw && vp.height == dh;
     static double last_vp[4];   // 视口变化时记一行（真机屏幕级验收 screen_check.py 核宽高比用） | Log one line when the viewport changes (used by the real-device screen-level acceptance screen_check.py to check the aspect ratio)
     if (memcmp(last_vp, &vp, sizeof last_vp)) { memcpy(last_vp, &vp, sizeof last_vp);
@@ -11729,6 +11764,18 @@ static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTex
     rp.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
     rp.colorAttachments[0].storeAction = MTLStoreActionStore;
     id<MTLRenderCommandEncoder> en = [cb renderCommandEncoderWithDescriptor:rp]; es_reset();
+#if defined(GAME_ACNH) && TARGET_OS_IPHONE
+    if (!full) {
+        float backgroundUV[8]; MTLScissorRect bars[4];
+        unsigned count = acnh_background(backgroundUV, bars, vp, dst.width, dst.height, src.width, src.height, cx, cy, cw, ch);
+        [en setViewport:(MTLViewport){0, 0, dw, dh, 0, 1}];
+        [en setRenderPipelineState:g_acnh_background_pso];
+        [en setFragmentTexture:src atIndex:0]; [en setFragmentSamplerState:g_blit_samp atIndex:0];
+        [en setFragmentBytes:backgroundUV length:sizeof backgroundUV atIndex:0];
+        for (unsigned i = 0; i < count; i++) { [en setScissorRect:bars[i]]; [en drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3]; }
+        [en setScissorRect:(MTLScissorRect){0, 0, dst.width, dst.height}];
+    }
+#endif
     [en setViewport:vp];
     [en setRenderPipelineState:g_blit_pso]; [en setFragmentTexture:src atIndex:0]; [en setFragmentSamplerState:g_blit_samp atIndex:0];
     float uv[8] = {(float)cx / src.width, (float)cy / src.height, (float)cw / src.width, (float)ch / src.height,
@@ -11765,6 +11812,9 @@ static int present_encode_m4(id<MTL4CommandBuffer> cb, id<MTLTexture> src, id<MT
     double dw = dst.width, dh = dst.height, s = fmin(dw / cw, dh / ch);
     MTLViewport vp = {floor((dw - cw * s) / 2), floor((dh - ch * s) / 2), round(cw * s), round(ch * s), 0, 1};
     if (fabs((dw / dh) / ((double)cw / ch) - 1) < 0.01 || present_stretch()) vp = (MTLViewport){0, 0, dw, dh, 0, 1};
+#if defined(GAME_ACNH) && TARGET_OS_IPHONE
+    vp.originX = floor((dw - vp.width) / 2); vp.originY = floor((dh - vp.height) / 2);
+#endif
     int full = vp.originX == 0 && vp.originY == 0 && vp.width == dw && vp.height == dh;
     id<MTLTexture> up = output_upscale(cb, src, cx, cy, cw, ch, vp, uv_i);   // TOTK 2K output: MetalFX to the viewport, drawn 1:1 below
     id<MTLTexture> pic = up ? up : src;
@@ -11780,6 +11830,20 @@ static int present_encode_m4(id<MTL4CommandBuffer> cb, id<MTLTexture> src, id<MT
     id<MTL4ArgumentTable> args = g_present_args[uv_i];
     [args setTexture:pic.gpuResourceID atIndex:0];
     [args setSamplerState:g_blit_samp.gpuResourceID atIndex:0];
+#if defined(GAME_ACNH) && TARGET_OS_IPHONE
+    if (!full) {
+        MTLScissorRect bars[4];
+        float *backgroundUV = (float *)g_present_uv[uv_i].contents + 8;
+        unsigned count = acnh_background(backgroundUV, bars, vp, dst.width, dst.height, pic.width, pic.height, cx, cy, cw, ch);
+        /* 每个出图槽独立保存背景参数，不能覆盖仍被 GPU 使用的前景参数。 */
+        [args setAddress:g_present_uv[uv_i].gpuAddress + sizeof(float) * 8 atIndex:0];
+        [en setArgumentTable:args atStages:MTLRenderStageFragment];
+        [en setViewport:(MTLViewport){0, 0, dw, dh, 0, 1}];
+        [en setRenderPipelineState:g_acnh_background_pso];
+        for (unsigned i = 0; i < count; i++) { [en setScissorRect:bars[i]]; [en drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3]; }
+        [en setScissorRect:(MTLScissorRect){0, 0, dst.width, dst.height}];
+    }
+#endif
     float *uv = g_present_uv[uv_i].contents;
     uv[0] = (float)cx / pic.width; uv[1] = (float)cy / pic.height; uv[2] = (float)cw / pic.width; uv[3] = (float)ch / pic.height;
     uv[4] = (cx + 0.5f) / pic.width; uv[5] = (cy + 0.5f) / pic.height; uv[6] = (cx + cw - 0.5f) / pic.width; uv[7] = (cy + ch - 0.5f) / pic.height;

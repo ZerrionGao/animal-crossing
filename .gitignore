@@ -4,6 +4,8 @@
 *.xci
 *.nsp
 work/
+games/acnh/ios/Gen/
+games/acnh/ios/ACNH.xcodeproj/
 assets/
 codex-session-*.md
 __pycache__/

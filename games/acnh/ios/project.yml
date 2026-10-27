@@ -1,0 +1,86 @@
+name: ACNH
+options:
+  bundleIdPrefix: org.macnativegames
+  deploymentTarget:
+    iOS: "26.0"
+configFiles:
+  Release: Gen/acnh.xcconfig
+  Debug: Gen/acnh.xcconfig
+targets:
+  ACNH:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - path: Gen/AppAssets.xcassets
+      - path: Gen/Resources/GameData
+        type: folder
+      - path: ../../../third_party/macnativegames/games/totk/runtime
+        excludes:
+          - frontend.m
+          - loader.c
+          - game_patches_botw.c
+          - game_patches.c
+          - game_patches_v143.c
+          - aoc_romfs.c
+          - swkbd_host.c
+          - world_survey.c
+          - shared_font_stub.c
+      - path: ../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn
+      - path: ../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/tex
+      - path: Gen/embed.S
+      - path: ../../../third_party/macnativegames/games/totk/runtime/loader.c
+        compilerFlags: "-Dmain=acnh_host_main"
+      - path: ../../../third_party/macnativegames/games/totk/runtime/game_patches.c
+      - path: ../../../games/acnh/runtime/acnh_msl_normalize.c
+      - path: ../../../games/acnh/runtime/safety_stubs.c
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: "集合啦！动物森友会"
+        CFBundleName: "Animal Crossing New Horizons"
+        CFBundleIdentifier: org.macnativegames.acnh
+        CFBundleShortVersionString: "3.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UIApplicationSupportsIndirectInputEvents: true
+        GCSupportsControllerUserInteraction: true
+        GCSupportedGameControllers:
+          - ProfileName: ExtendedGamepad
+        CADisableMinimumFrameDurationOnPhone: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: ACNHSceneDelegate
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: org.macnativegames.acnh
+      PRODUCT_NAME: ACNH
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      CODE_SIGN_ENTITLEMENTS: Sources/ACNH.entitlements
+      TARGETED_DEVICE_FAMILY: "1,2"
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+      CODE_SIGN_STYLE: Automatic
+      CODE_SIGNING_ALLOWED: NO
+      ENABLE_BITCODE: NO
+      GCC_C_LANGUAGE_STANDARD: gnu11
+      CLANG_ENABLE_OBJC_ARC: YES
+      GCC_WARN_INHIBIT_ALL_WARNINGS: YES
+      HEADER_SEARCH_PATHS:
+        - $(inherited)
+        - ../../../games/acnh/runtime
+        - ../../../third_party/macnativegames/games/totk/runtime
+        - ../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn
+        - ../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn/include
+        - Gen
+        - Gen/deps/include
+      OTHER_CFLAGS: $(inherited) -DGAME_ACNH=1 -DACNH_BOOT_VERIFIED=1 -I../../../games/acnh/runtime -I../../../third_party/macnativegames/games/totk/runtime -I../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn -I../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn/include -IGen -IGen/deps/include -mcpu=apple-a15

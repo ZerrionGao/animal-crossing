@@ -169,15 +169,22 @@ static void ready(void) { pthread_once(&once, init); }
 
 #ifdef GAME_ACNH
 #define DEVICE_PATH_CAP 1200
-static int device_directory_path(const char *path, int create) {
-    if (!path || !*path || strlen(path) >= DEVICE_PATH_CAP) return 0;
+static int device_directory_path_checked(const char *path, int create, const char **failure) {
+    if (failure) *failure = NULL;
+    if (!path || !*path || strlen(path) >= DEVICE_PATH_CAP) {
+        if (failure) *failure = "empty-or-too-long";
+        return 0;
+    }
     const char *scan = path;
     while (*scan) {
         while (*scan == '/') scan++;
         const char *end = scan;
         while (*end && *end != '/') end++;
         size_t length = (size_t)(end - scan);
-        if (length == 2 && scan[0] == '.' && scan[1] == '.') return 0;
+        if (length == 2 && scan[0] == '.' && scan[1] == '.') {
+            if (failure) *failure = "parent-component";
+            return 0;
+        }
         scan = end;
     }
 
@@ -193,22 +200,40 @@ static int device_directory_path(const char *path, int create) {
         if (!length) break;
         if (!(length == 1 && scan[0] == '.')) {
             size_t used = strlen(current);
-            if (used + length + 2 > sizeof current) return 0;
+            if (used + length + 2 > sizeof current) {
+                if (failure) *failure = "component-too-long";
+                return 0;
+            }
             if (used && current[used - 1] != '/') current[used++] = '/';
             memcpy(current + used, scan, length);
             current[used + length] = 0;
             struct stat st;
             if (lstat(current, &st)) {
-                if (errno != ENOENT) return 0;
+                if (errno != ENOENT) {
+                    if (failure) *failure = "lstat-error";
+                    return 0;
+                }
                 if (!create) return 1;
-                if (mkdir(current, 0700) && errno != EEXIST) return 0;
-                if (lstat(current, &st)) return 0;
+                if (mkdir(current, 0700) && errno != EEXIST) {
+                    if (failure) *failure = "mkdir-error";
+                    return 0;
+                }
+                if (lstat(current, &st)) {
+                    if (failure) *failure = "lstat-after-mkdir-error";
+                    return 0;
+                }
             }
-            if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) return 0;
+            if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) {
+                if (failure) *failure = "component-not-directory-or-symlink";
+                return 0;
+            }
         }
         scan = end;
     }
     return 1;
+}
+static int device_directory_path(const char *path, int create) {
+    return device_directory_path_checked(path, create, NULL);
 }
 
 static int device_metadata_path_safe(const char *path) {
@@ -220,29 +245,38 @@ static int device_metadata_path_safe(const char *path) {
 static int device_profile_preflight(void) {
     const char *dir = getenv("TOTK_PROFILE_DIR");
     if (!dir) dir = "user-data";
-    if (!*dir || strlen(dir) >= sizeof profile || !device_directory_path(dir, 0)) return 0;
+#define PREFLIGHT_REJECT(stage) do { fprintf(stderr, "[acnh-save] profile preflight failed: %s\n", stage); return 0; } while (0)
+    const char *path_failure = NULL;
+    if (!*dir) PREFLIGHT_REJECT("profile-root-empty");
+    if (strlen(dir) >= sizeof profile) PREFLIGHT_REJECT("profile-root-too-long");
+    if (!device_directory_path_checked(dir, 0, &path_failure)) {
+        fprintf(stderr, "[acnh-save] profile root path rejected: %s\n", path_failure ? path_failure : "unknown");
+        return 0;
+    }
 
     char path[DEVICE_PATH_CAP];
-    if (snprintf(path, sizeof path, "%s/save", dir) >= (int)sizeof path || !device_directory_path(path, 0)) return 0;
+    if (snprintf(path, sizeof path, "%s/save", dir) >= (int)sizeof path || !device_directory_path(path, 0)) PREFLIGHT_REJECT("user-save-path");
     uint64_t uid[2];
     runtime_account_uid(uid);
     if (snprintf(path, sizeof path, "%s/save/%016llx%016llx", dir,
                  (unsigned long long)uid[1], (unsigned long long)uid[0]) >= (int)sizeof path ||
-        !device_directory_path(path, 0)) return 0;
-    if (snprintf(path, sizeof path, "%s/temp", dir) >= (int)sizeof path || !device_directory_path(path, 0)) return 0;
-    if (snprintf(path, sizeof path, "%s/cache", dir) >= (int)sizeof path || !device_directory_path(path, 0)) return 0;
+        !device_directory_path(path, 0)) PREFLIGHT_REJECT("user-save-account-path");
+    if (snprintf(path, sizeof path, "%s/temp", dir) >= (int)sizeof path || !device_directory_path(path, 0)) PREFLIGHT_REJECT("temp-path");
+    if (snprintf(path, sizeof path, "%s/cache", dir) >= (int)sizeof path || !device_directory_path(path, 0)) PREFLIGHT_REJECT("cache-path");
 
     char base[DEVICE_PATH_CAP], root[DEVICE_PATH_CAP], meta[DEVICE_PATH_CAP];
     if (snprintf(base, sizeof base, "%s/device-save", dir) >= (int)sizeof base ||
-        !device_directory_path(base, 0)) return 0;
+        !device_directory_path(base, 0)) PREFLIGHT_REJECT("device-save-base");
     if (snprintf(root, sizeof root, "%s/%s", base, DEVICE_SAVE_APP_ID_NAME) >= (int)sizeof root ||
-        !device_directory_path(root, 0)) return 0;
+        !device_directory_path(root, 0)) PREFLIGHT_REJECT("device-save-root");
     if (snprintf(meta, sizeof meta, "%s/%s.meta", base, DEVICE_SAVE_APP_ID_NAME) >= (int)sizeof meta ||
-        !device_metadata_path_safe(meta)) return 0;
+        !device_metadata_path_safe(meta)) PREFLIGHT_REJECT("device-save-metadata");
     struct stat meta_st, root_st;
-    if (!lstat(meta, &meta_st) && lstat(root, &root_st) && errno == ENOENT) return 0;
+    if (!lstat(meta, &meta_st) && lstat(root, &root_st) && errno == ENOENT) PREFLIGHT_REJECT("metadata-without-payload");
 
-    return device_directory_path(dir, 1);
+    if (!device_directory_path(dir, 1)) PREFLIGHT_REJECT("create-profile-root");
+#undef PREFLIGHT_REJECT
+    return 1;
 }
 
 static unsigned device_mount_name_check(const char *name) {
@@ -738,7 +772,7 @@ static unsigned get_device_save_restore_flag(bool *out, const char *name) {
 static unsigned commit(const char *name);
 static unsigned commit_multiple(const char *const *names, int count) {
     if (count < 0 || count > 16 || (count > 0 && !names)) return R_INVALID_ARGUMENT;
-    if (count > 1) return R_INVALID_ARGUMENT; /* 跨物理 store 的原子提交尚未实现。 */
+    if (count > 1) { fprintf(stderr, "[acnh-save] Commit rejected: %d mount names require cross-store atomic commit\n", count); return R_INVALID_ARGUMENT; } /* 跨物理 store 的原子提交尚未实现。 */
     if (!count) return 0;
     if (!names[0]) return R_INVALID_ARGUMENT;
     return commit(names[0]);

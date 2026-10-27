@@ -168,7 +168,7 @@ static void remap_at(Module *m,uintptr_t to,const void *from,size_t size,boolean
  mach_vm_address_t a=to;vm_prot_t cur=0,max=0;
  kern_return_t kr=mach_vm_remap(mach_task_self(),&a,size,0,VM_FLAGS_FIXED|VM_FLAGS_OVERWRITE,mach_task_self(),(uintptr_t)from,copy,&cur,&max,VM_INHERIT_NONE);
  if(kr!=KERN_SUCCESS||a!=to){fprintf(stderr,"[totk] %s vm_remap %p -> %#lx (%#zx bytes) failed: %d\n",m->name,from,(unsigned long)to,size,kr);runtime_fail("remap embedded module");}
- need((cur&need_prot)==need_prot,"embedded module permissions after remap");
+	need((cur&need_prot)==need_prot,"embedded module permissions after remap");
 }
 static void digest_hex(const void *p,size_t n,char hex[65]){unsigned char d[32];CC_SHA256(p,(CC_LONG)n,d);for(unsigned i=0;i<32;i++)snprintf(hex+i*2,3,"%02x",d[i]);}
 static void map_module(Module *m,const char *dir) {
@@ -566,12 +566,13 @@ int main(int argc,char **argv) {
 #ifndef ACNH_BOOT_VERIFIED
  need(!strcmp(argv[2],"probe")||!strcmp(argv[2],"probe-gpu-midclear")||!strcmp(argv[2],"probe-gpu-ds-clear"),"ACNH non-boot binary only enables the cross-module probe and two isolated GPU probes");
 #else
- need(!strcmp(argv[2],"probe")||!strcmp(argv[2],"boot"),"ACNH loader supports probe or verified boot");
+ need(!strcmp(argv[2],"probe")||!strcmp(argv[2],"boot")||!strcmp(argv[2],"export-ios"),"ACNH loader supports probe, verified boot, or iOS export");
+ if(!strcmp(argv[2],"export-ios"))need(getenv("TOTK_EXPORT_IOS")!=NULL,"export-ios needs TOTK_EXPORT_IOS=<dir>");
 #endif
 #endif
  /* One game or GPU probe at a time (memory, GPU time): wait for the slot before anything is loaded. */
  if(!strcmp(argv[2],"boot")||!strncmp(argv[2],"probe-gpu",9))runtime_game_slot_acquire(argv[2]);
- if(strcmp(argv[2],"boot"))setenv("TOTK_PROBE_GPU","1",1);   /* standalone probes submit GPU work; the game does not unless TOTK_GPU_ALLOW_SUBMIT=1 */
+ if(strcmp(argv[2],"boot")&&strcmp(argv[2],"export-ios"))setenv("TOTK_PROBE_GPU","1",1);   /* standalone probes submit GPU work; the game does not unless TOTK_GPU_ALLOW_SUBMIT=1 */
  else unsetenv("TOTK_PROBE_GPU");need(sysconf(_SC_PAGESIZE)==0x4000,"expected 16KB Apple pages");
  struct sigaction a={0};a.sa_sigaction=crash;a.sa_flags=SA_SIGINFO|SA_ONSTACK;sigemptyset(&a.sa_mask);
  sigaction(SIGSEGV,&a,NULL);sigaction(SIGBUS,&a,NULL);sigaction(SIGILL,&a,NULL);sigaction(SIGTRAP,&a,NULL);
