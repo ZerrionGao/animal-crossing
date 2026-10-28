@@ -1,4 +1,4 @@
-#include "../third_party/macnativegames/games/totk/runtime/ngc_aho.h"
+#include "../engine/runtime/ngc_aho.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>

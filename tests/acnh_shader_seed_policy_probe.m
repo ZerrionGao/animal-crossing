@@ -1,6 +1,6 @@
 #import <Foundation/Foundation.h>
 
-#include "../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn/totk_shader_seed.h"
+#include "../engine/graphics/nvn/totk_shader_seed.h"
 
 static void require(BOOL condition, NSString *message) {
     if (!condition) { fprintf(stderr, "FAIL: %s\n", message.UTF8String); exit(1); }

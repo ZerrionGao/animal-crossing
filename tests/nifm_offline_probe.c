@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../third_party/macnativegames/games/totk/runtime/ipc.h"
+#include "../engine/runtime/ipc.h"
 
 static const char *registered_name;
 static IpcHandler registered_handler;
@@ -31,7 +31,7 @@ _Noreturn void ipc_unimplemented(const IpcSession *session, const IpcRequest *re
     abort();
 }
 
-#include "../third_party/macnativegames/games/totk/runtime/nifm_offline.c"
+#include "../engine/runtime/nifm_offline.c"
 
 int main(void) {
     assert(registered_name && strcmp(registered_name, "nifm:u") == 0);

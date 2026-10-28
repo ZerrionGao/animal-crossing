@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests/ngc_aho_probe.c"
-SOURCE = ROOT / "third_party/macnativegames/games/totk/runtime/ngc_aho.c"
+SOURCE = ROOT / "engine/runtime/ngc_aho.c"
 ROMFS = ROOT / "work/research/ngword2-from-xci-20261023/romfs"
 
 

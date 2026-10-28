@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER_DIR = ROOT / 'third_party/macnativegames/games/totk/third_party/d2r'
+HELPER_DIR = ROOT / 'engine/tools/nso-rewriter'
 sys.path.insert(0, str(HELPER_DIR))
 sys.path.insert(0, str(ROOT / 'games/acnh/scripts'))
 

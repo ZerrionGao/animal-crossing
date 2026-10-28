@@ -15,8 +15,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-VENDOR_RUNTIME = ROOT / 'third_party/macnativegames/games/totk/runtime'
-VENDOR_NVN = ROOT / 'third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn'
+VENDOR_RUNTIME = ROOT / 'engine/runtime'
+VENDOR_NVN = ROOT / 'engine/graphics/nvn'
 PROFILE_PATH = ROOT / 'games/acnh/profiles/3.0.0.json'
 APP_NAME = 'Animal Crossing New Horizons'
 BUNDLE_ID = 'org.macnativegames.acnh'
@@ -153,7 +153,7 @@ def compile_launcher(output: Path, log: Path) -> None:
 def extract_icon(output: Path, log: Path) -> bool:
     nsp = ROOT / 'Animal Crossing New Horizons v3.0.0.nsp'
     keys = ROOT / 'prod.keys'
-    script = ROOT / 'third_party/macnativegames/games/totk/scripts/extract_app_icon.py'
+    script = ROOT / 'engine/tools/game-data-extractors/extract_app_icon.py'
     if not nsp.is_file() or not keys.is_file() or not script.is_file():
         return False
     env = dict(os.environ)

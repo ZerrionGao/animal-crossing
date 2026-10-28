@@ -11,8 +11,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests/acnh_shared_font_probe.c"
-SOURCE = ROOT / "third_party/macnativegames/games/totk/runtime/shared_font.c"
-RUNTIME = ROOT / "third_party/macnativegames/games/totk/runtime"
+SOURCE = ROOT / "engine/runtime/shared_font.c"
+RUNTIME = ROOT / "engine/runtime"
 DECODED_MAGIC = 0x7F9A0218
 
 

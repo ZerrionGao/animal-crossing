@@ -9,8 +9,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "../third_party/macnativegames/games/totk/runtime/fs_host.h"
-#include "../third_party/macnativegames/games/totk/runtime/runtime.h"
+#include "../engine/runtime/fs_host.h"
+#include "../engine/runtime/runtime.h"
 
 _Noreturn void runtime_fail(const char *message) {
     fprintf(stderr, "[probe-fail] %s\n", message);

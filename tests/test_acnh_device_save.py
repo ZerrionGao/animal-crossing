@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests/device_save_probe.c"
-FS_HOST = ROOT / "third_party/macnativegames/games/totk/runtime/fs_host.c"
+FS_HOST = ROOT / "engine/runtime/fs_host.c"
 APP = "01006f8002326000"
 META_SIZE = 56
 META_MAGIC = 0x41434E4844534156

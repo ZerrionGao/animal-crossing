@@ -1,4 +1,4 @@
-"""绑定固定版本的 MacNativeGames 提取逻辑与 ACNH 标题校验。"""
+"""复用游戏容器提取器并执行 ACNH 标题校验。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Iterator
 BASE_TITLE_ID = "01006F8002326000"
 UPDATE_TITLE_ID = "01006F8002326800"
 REPO_ROOT = Path(__file__).resolve().parents[3]
-UPSTREAM_SCRIPTS = REPO_ROOT / "third_party/macnativegames/games/totk/scripts"
+EXTRACTORS = REPO_ROOT / "engine/tools/game-data-extractors"
 
 
 class AssetError(ValueError):
@@ -25,8 +25,8 @@ def require(condition: bool, message: str) -> None:
 
 @contextmanager
 def upstream_modules(keys: dict[str, bytes] | None = None) -> Iterator[tuple[object, object, object]]:
-    require(UPSTREAM_SCRIPTS.is_dir(), "固定版本的 MNG 上游脚本缺失")
-    scripts = str(UPSTREAM_SCRIPTS)
+    require(EXTRACTORS.is_dir(), "游戏数据提取工具缺失")
+    scripts = str(EXTRACTORS)
     sys.path.insert(0, scripts)
     try:
         for name in ("extract_exefs", "extract_romfs", "extract_update_romfs", "extract_shared_fonts"):

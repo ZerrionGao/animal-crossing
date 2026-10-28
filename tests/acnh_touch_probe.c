@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <TargetConditionals.h>
-#include "../third_party/macnativegames/games/totk/runtime/runtime.h"
+#include "../engine/runtime/runtime.h"
 
 static jmp_buf failure;
 _Noreturn void runtime_fail(const char *message) {

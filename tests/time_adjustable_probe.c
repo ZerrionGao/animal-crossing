@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../third_party/macnativegames/games/totk/runtime/runtime.h"
+#include "../engine/runtime/runtime.h"
 
 #ifdef GAME_ACNH
 static _Atomic int64_t fake_wall_ns;

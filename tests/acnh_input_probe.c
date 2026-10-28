@@ -44,7 +44,7 @@ void runtime_diag_frm_watch(double seconds, unsigned offset, int in_x) {
 void runtime_diag_xpoke(unsigned offset, float value) { (void)offset; (void)value; }
 void runtime_dump_threads(void) {}
 
-#include "../third_party/macnativegames/games/totk/runtime/input.c"
+#include "../engine/runtime/input.c"
 
 static void rush_key_up(void) { runtime_input_key(18, 0); }
 static void rush_key_down(void) { runtime_input_key(18, 1); }

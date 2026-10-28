@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "../third_party/macnativegames/games/totk/runtime/runtime.h"
+#include "../engine/runtime/runtime.h"
 
 static jmp_buf failure;
 static char failure_message[128];

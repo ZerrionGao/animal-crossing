@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 PROFILE_DEFAULT = ROOT / 'games/acnh/profiles/3.0.0.json'
-PATCHER = ROOT / 'third_party/macnativegames/games/totk/third_party/d2r/patch_nso.py'
+PATCHER = ROOT / 'engine/tools/nso-rewriter/patch_nso.py'
 TOOL_FILES = [
     PATCHER,
     PATCHER.with_name('dynsym.py'),

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME = ROOT / "third_party/macnativegames/games/totk/runtime"
+RUNTIME = ROOT / "engine/runtime"
 SCRIPT = ROOT / "games/acnh/scripts/prepare_runtime.py"
 spec = importlib.util.spec_from_file_location("acnh_prepare_runtime", SCRIPT)
 prepare_runtime = importlib.util.module_from_spec(spec)

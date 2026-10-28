@@ -1,5 +1,5 @@
 /* Synthetic metadata regression for the exact production RomFS parser and directory catalog. */
-#include "../third_party/macnativegames/games/totk/runtime/romfs.c"
+#include "../engine/runtime/romfs.c"
 #include <assert.h>
 #include <setjmp.h>
 

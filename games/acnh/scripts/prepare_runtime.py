@@ -12,8 +12,8 @@ from pathlib import Path
 from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
 
 ROOT = Path(__file__).resolve().parents[3]
-VENDOR = ROOT / "third_party/macnativegames"
-sys.path.insert(0, str(VENDOR / "games/totk/third_party/d2r"))
+ENGINE = ROOT / "engine"
+sys.path.insert(0, str(ENGINE / "tools/nso-rewriter"))
 from relr import decode_relr  # noqa: E402
 
 PROFILE = ROOT / "games/acnh/profiles/3.0.0.json"
@@ -22,10 +22,10 @@ MODULES = ("main", "subsdk0", "sdk")
 REWRITE_TOOLS = {
     "games/acnh/scripts/rewrite.py",
     "games/acnh/profiles/3.0.0.json",
-    "third_party/macnativegames/games/totk/third_party/d2r/patch_nso.py",
-    "third_party/macnativegames/games/totk/third_party/d2r/dynsym.py",
-    "third_party/macnativegames/games/totk/third_party/d2r/call_window.py",
-    "third_party/macnativegames/games/totk/third_party/d2r/relr.py",
+    "engine/tools/nso-rewriter/patch_nso.py",
+    "engine/tools/nso-rewriter/dynsym.py",
+    "engine/tools/nso-rewriter/call_window.py",
+    "engine/tools/nso-rewriter/relr.py",
 }
 DT_HASH, DT_STRTAB, DT_SYMTAB, DT_RELA, DT_RELASZ = 4, 5, 6, 7, 8
 DT_RELAENT, DT_INIT, DT_PLTRELSZ, DT_JMPREL, DT_PLTREL = 9, 12, 2, 23, 20

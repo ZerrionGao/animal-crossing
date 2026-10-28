@@ -1,5 +1,5 @@
-#include "../third_party/macnativegames/games/totk/runtime/ipc.h"
-#include "../third_party/macnativegames/games/totk/runtime/runtime.h"
+#include "../engine/runtime/ipc.h"
+#include "../engine/runtime/runtime.h"
 #include <assert.h>
 #include <mach/mach_time.h>
 #include <stdio.h>

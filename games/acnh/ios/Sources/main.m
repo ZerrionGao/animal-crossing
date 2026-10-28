@@ -13,6 +13,7 @@
 
 int acnh_host_main(int argc, char **argv);
 void runtime_ios_attach_layer(CAMetalLayer *layer, UIView *host);
+void runtime_ios_set_active(int active);
 /* 温控状态：0 正常、1 轻度、2 严重、3 紧急；这是系统热状态枚举，不是摄氏度。 */
 int dm_thermal_now(void) { return (int)NSProcessInfo.processInfo.thermalState; }
 static char *host_argv[3];
@@ -129,7 +130,7 @@ static void audio_resume(int recreate, const char *why) {
 static void audio_observe(void) {
     NSNotificationCenter *nc = NSNotificationCenter.defaultCenter; NSOperationQueue *main = NSOperationQueue.mainQueue;
     [nc addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:main usingBlock:^(NSNotification *n) {
-        (void)n; wait_for_save_before_suspend();
+        (void)n; runtime_ios_set_active(0); wait_for_save_before_suspend();
     }];
     [nc addObserverForName:AVAudioSessionInterruptionNotification object:nil queue:main usingBlock:^(NSNotification *n) {
         NSUInteger type = [n.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue];
@@ -140,7 +141,7 @@ static void audio_observe(void) {
         (void)n; fprintf(stderr,"[totk-audio] media services were reset\n"); audio_resume(1,"media services reset");
     }];
     [nc addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:main usingBlock:^(NSNotification *n) {
-        (void)n; UIApplication.sharedApplication.idleTimerDisabled = YES;
+        (void)n; runtime_ios_set_active(1); UIApplication.sharedApplication.idleTimerDisabled = YES;
         if (g_audio_interrupted) audio_resume(0,"became active during an interruption");
     }];
 }
@@ -157,6 +158,7 @@ static void audio_observe(void) {
     // Controller input does not reset the idle timer; auto-lock would suspend the game mid-play or mid shader import.
     application.idleTimerDisabled = YES;
     g_save_background_task = UIBackgroundTaskInvalid;
+    runtime_ios_set_active(1);
     audio_observe();
     /* Keep the preferred locale for the shared runtime's language selection. */
     NSString *preferred = NSLocale.preferredLanguages.firstObject;

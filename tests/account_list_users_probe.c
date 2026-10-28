@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../third_party/macnativegames/games/totk/runtime/runtime.h"
+#include "../engine/runtime/runtime.h"
 
 typedef struct { uint64_t lo, hi; } ProbeUid;
 typedef uint32_t (*ListUsersFn)(int *, ProbeUid *, int);

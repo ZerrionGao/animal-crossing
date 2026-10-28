@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "../third_party/macnativegames/games/totk/runtime/runtime.h"
+#include "../engine/runtime/runtime.h"
 
 typedef struct { char bytes[0x24]; } LocationName;
 typedef struct {

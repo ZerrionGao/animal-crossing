@@ -18,7 +18,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[4]
 WORK = ROOT / 'work/acnh/3.0.0'
-VENDOR = ROOT / 'third_party/macnativegames/games/totk'
+VENDOR = ROOT / 'engine'
 IOS = ROOT / 'games/acnh/ios'
 BUNDLE_ID = 'org.macnativegames.acnh'
 IDENTITY_RE = re.compile(r'^\s*\d+\) ([0-9A-F]{40}) "Apple Development: .* \(([A-Z0-9]+)\)"$')
@@ -168,7 +168,7 @@ def prepare_seed(destination: Path, normalizer: Path, log_dir: Path) -> int:
         source = WORK / 'shader-cache'
     if not source.is_dir():
         raise RuntimeError('找不到已运行的 ACNH 着色器缓存，无法准备 iPhone 首轮着色器资源')
-    header = (VENDOR / 'third_party/d2r_gfx/gfx/nvn/dmsh_chain.h').read_text()
+    header = (VENDOR / 'graphics/nvn/dmsh_chain.h').read_text()
     chain_match = re.search(r'#define DMSH_CHAIN "([^"]+)"', header)
     if not chain_match:
         raise RuntimeError('无法读取当前着色器翻译链标识')
@@ -280,7 +280,7 @@ def package(args: argparse.Namespace) -> Path:
     host = WORK / 'build/acnh-native-boot'
     run([host, WORK / 'rewritten', 'export-ios'], logs / 'export-ios.log',
         env=dict(os.environ, TOTK_EXPORT_IOS=str(export_dir)))
-    run([sys.executable, VENDOR / 'ios/tools/gen_embed.py', WORK / 'rewritten', gen / 'embed.S',
+    run([sys.executable, VENDOR / 'tools/gen_embed.py', WORK / 'rewritten', gen / 'embed.S',
          '--text-dir', export_dir, 'main', 'subsdk0', 'sdk'], logs / 'embed.log')
     embed_linker_flags = (logs / 'embed.log').read_text().split()
     if not embed_linker_flags or any(not flag.startswith('-Wl,-segprot,') for flag in embed_linker_flags):

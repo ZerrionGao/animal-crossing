@@ -1,6 +1,6 @@
 #define GAME_ACNH 1
 
-#include "../third_party/macnativegames/games/totk/runtime/audout_host.c"
+#include "../engine/runtime/audout_host.c"
 
 #include <assert.h>
 #include <stdint.h>

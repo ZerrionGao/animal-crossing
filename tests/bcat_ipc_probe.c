@@ -4,8 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../third_party/macnativegames/games/totk/runtime/ipc.h"
-#include "../third_party/macnativegames/games/totk/runtime/runtime.h"
+#include "../engine/runtime/ipc.h"
+#include "../engine/runtime/runtime.h"
 
 void *runtime_bcat_override(const char *name);
 

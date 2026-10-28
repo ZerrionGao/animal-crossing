@@ -15,23 +15,17 @@ targets:
       - path: Gen/AppAssets.xcassets
       - path: Gen/Resources/GameData
         type: folder
-      - path: ../../../third_party/macnativegames/games/totk/runtime
+      - path: ../../../engine/runtime
         excludes:
           - frontend.m
           - loader.c
-          - game_patches_botw.c
           - game_patches.c
-          - game_patches_v143.c
-          - aoc_romfs.c
-          - swkbd_host.c
-          - world_survey.c
-          - shared_font_stub.c
-      - path: ../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn
-      - path: ../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/tex
+      - path: ../../../engine/graphics/nvn
+      - path: ../../../engine/graphics/texture
       - path: Gen/embed.S
-      - path: ../../../third_party/macnativegames/games/totk/runtime/loader.c
+      - path: ../../../engine/runtime/loader.c
         compilerFlags: "-Dmain=acnh_host_main"
-      - path: ../../../third_party/macnativegames/games/totk/runtime/game_patches.c
+      - path: ../../../engine/runtime/game_patches.c
       - path: ../../../games/acnh/runtime/acnh_msl_normalize.c
       - path: ../../../games/acnh/runtime/safety_stubs.c
     info:
@@ -78,9 +72,9 @@ targets:
       HEADER_SEARCH_PATHS:
         - $(inherited)
         - ../../../games/acnh/runtime
-        - ../../../third_party/macnativegames/games/totk/runtime
-        - ../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn
-        - ../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn/include
+        - ../../../engine/runtime
+        - ../../../engine/graphics/nvn
+        - ../../../engine/graphics/nvn/include
         - Gen
         - Gen/deps/include
-      OTHER_CFLAGS: $(inherited) -DGAME_ACNH=1 -DACNH_BOOT_VERIFIED=1 -I../../../games/acnh/runtime -I../../../third_party/macnativegames/games/totk/runtime -I../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn -I../../../third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn/include -IGen -IGen/deps/include -mcpu=apple-a15
+      OTHER_CFLAGS: $(inherited) -DGAME_ACNH=1 -DACNH_BOOT_VERIFIED=1 -I../../../games/acnh/runtime -I../../../engine/runtime -I../../../engine/graphics/nvn -I../../../engine/graphics/nvn/include -IGen -IGen/deps/include -mcpu=apple-a15

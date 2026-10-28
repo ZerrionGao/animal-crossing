@@ -114,7 +114,7 @@ def verify(args):
     manifest = json.loads((rewritten / 'manifest.json').read_text())
     require(manifest['status'] == 'pass' and manifest['cuts'] == 0 and manifest['observations'] == 0,
             '改写清单未通过或包含未授权游戏补丁')
-    vendor = ROOT / 'third_party/macnativegames/games/totk/third_party/d2r'
+    vendor = ROOT / 'engine/tools/nso-rewriter'
     tools = [vendor / name for name in ('patch_nso.py', 'dynsym.py', 'call_window.py', 'relr.py')]
     tools += [SCRIPTS / 'rewrite.py', PROFILE_PATH]
     require(set(manifest['tools']) == {str(path.relative_to(ROOT)) for path in tools}, '改写工具/配置清单不匹配')

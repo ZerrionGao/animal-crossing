@@ -4,9 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../third_party/macnativegames/games/totk/runtime/ipc.h"
-#include "../third_party/macnativegames/games/totk/runtime/ngc_aho.h"
-#include "../third_party/macnativegames/games/totk/runtime/runtime.h"
+#include "../engine/runtime/ipc.h"
+#include "../engine/runtime/ngc_aho.h"
+#include "../engine/runtime/runtime.h"
 
 pthread_key_t runtime_keys[8];
 static void *handles[4096];

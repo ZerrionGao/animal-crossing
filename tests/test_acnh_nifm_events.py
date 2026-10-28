@@ -7,8 +7,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests/nifm_event_lifecycle_probe.c"
-RUNTIME = ROOT / "third_party/macnativegames/games/totk/runtime"
-NVN_INCLUDE = ROOT / "third_party/macnativegames/games/totk/third_party/d2r_gfx/gfx/nvn/include"
+RUNTIME = ROOT / "engine/runtime"
+NVN_INCLUDE = ROOT / "engine/graphics/nvn/include"
 
 
 @unittest.skipUnless(shutil.which("xcrun"), "requires the macOS compiler")

@@ -2,27 +2,30 @@
 """在本项目 work 目录构建固定版本、带边界检查的 BKTR 工具。"""
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
+
+from hactool import HACTOOL, build_hactool
 
 ROOT = Path(__file__).resolve().parents[3]
 
 
 def prepare_shaders():
-    source = ROOT / 'third_party/macnativegames/games/totk/prebuilt/macos-arm64/totk_xlate'
-    expected = source.with_name('totk_xlate.sha256').read_text().strip()
-    if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
-        raise RuntimeError('内置 shader 翻译器哈希不匹配')
     cross = shutil.which('spirv-cross')
     if cross is None:
         raise RuntimeError('缺少 spirv-cross；请先提供该工具')
     base = ROOT / 'work/acnh/3.0.0'
-    files = {source: base / 'build/shader-service/totk_xlate',
-             Path(cross): base / 'build/spirv-cross/spirv-cross'}
+    translator = base / 'build/shader-service/totk_xlate'
+    translator.parent.mkdir(parents=True, exist_ok=True)
+    script = ROOT / 'engine/tools/shader-translator/publish_native.sh'
+    result = subprocess.run([str(script), str(translator)], cwd=ROOT)
+    if result.returncode:
+        raise RuntimeError(f'着色器翻译器构建失败，退出码 {result.returncode}')
+    files = {translator: translator, Path(cross): base / 'build/spirv-cross/spirv-cross'}
     report = {}
     for original, destination in files.items():
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -45,17 +48,14 @@ def main():
     if args.shader_tools_only:
         prepare_shaders()
         return
-    module_path = ROOT / 'third_party/macnativegames/build_app.py'
-    spec = importlib.util.spec_from_file_location('mng_build_tools', module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     work = ROOT / 'work/acnh/toolchain'
     work.mkdir(parents=True, exist_ok=True)
-    binary = module.build_hactool(work / 'tree', work / 'logs')
+    binary = build_hactool(work, work / 'logs')
+    module_path = ROOT / 'games/acnh/scripts/hactool.py'
     report = {
-        'upstream': {'repository': module.HACTOOL[0], 'commit': module.HACTOOL[1]},
-        'patch_provider': 'MacNativeGames dfa7ec426f8b37798073a108ede1504c827d8af0 build_hactool',
-        'patch_provider_sha256': hashlib.sha256(module_path.read_bytes()).hexdigest(),
+        'source': {'repository': HACTOOL[0], 'commit': HACTOOL[1]},
+        'patch_script': str(module_path.relative_to(ROOT)),
+        'patch_script_sha256': hashlib.sha256(module_path.read_bytes()).hexdigest(),
         'binary': str(binary.relative_to(ROOT)),
         'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
     }

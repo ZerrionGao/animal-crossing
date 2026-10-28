@@ -7,7 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests/acnh_input_probe.c"
-RUNTIME = ROOT / "third_party/macnativegames/games/totk/runtime"
+RUNTIME = ROOT / "engine/runtime"
 
 
 @unittest.skipUnless(shutil.which("xcrun"), "requires the macOS compiler")

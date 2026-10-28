@@ -8,8 +8,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests/pseudo_device_probe.c"
-APPLET = ROOT / "third_party/macnativegames/games/totk/runtime/applet_host.c"
-RUNTIME = ROOT / "third_party/macnativegames/games/totk/runtime"
+APPLET = ROOT / "engine/runtime/applet_host.c"
+RUNTIME = ROOT / "engine/runtime"
 SYMBOL = "_ZN2nn2oe17GetPseudoDeviceIdEPNS_4util4UuidE"
 
 

@@ -1,18 +1,18 @@
-VENDOR := ../../third_party/macnativegames/games/totk
+ENGINE := ../../engine
 OUT := ../../work/acnh/3.0.0
 OUT_ABS := $(abspath $(OUT))
 PY := ../../.venv/bin/python
 NATIVE_OPT ?= -O2
 
-GFX_SRC := $(wildcard $(VENDOR)/third_party/d2r_gfx/gfx/nvn/*.c $(VENDOR)/third_party/d2r_gfx/gfx/nvn/*.m $(VENDOR)/third_party/d2r_gfx/gfx/nvn/*.S $(VENDOR)/third_party/d2r_gfx/gfx/tex/*.c $(VENDOR)/third_party/d2r_gfx/gfx/tex/*.m)
-GFX_OBJECTS := $(patsubst $(VENDOR)/%,$(OUT)/build/acnh-gfx/%.o,$(GFX_SRC))
-GFX_HEADERS := $(wildcard $(VENDOR)/third_party/d2r_gfx/gfx/nvn/*.h $(VENDOR)/third_party/d2r_gfx/gfx/nvn/include/*.h $(VENDOR)/third_party/d2r_gfx/host/*.h) runtime/acnh_msl_normalize.h
-GFX_FLAGS := -std=gnu11 -Wno-error -Wno-unused-function -Wno-unused-parameter -DGAME_ACNH -fobjc-arc -I$(VENDOR)/third_party/d2r_gfx/gfx/nvn/include -I$(abspath runtime)
+GFX_SRC := $(wildcard $(ENGINE)/graphics/nvn/*.c $(ENGINE)/graphics/nvn/*.m $(ENGINE)/graphics/nvn/*.S $(ENGINE)/graphics/texture/*.c $(ENGINE)/graphics/texture/*.m)
+GFX_OBJECTS := $(patsubst $(ENGINE)/%,$(OUT)/build/acnh-gfx/%.o,$(GFX_SRC))
+GFX_HEADERS := $(wildcard $(ENGINE)/graphics/nvn/*.h $(ENGINE)/graphics/nvn/include/*.h $(ENGINE)/graphics/host/*.h) runtime/acnh_msl_normalize.h
+GFX_FLAGS := -std=gnu11 -Wno-error -Wno-unused-function -Wno-unused-parameter -DGAME_ACNH -fobjc-arc -I$(ENGINE)/graphics/nvn/include -I$(abspath runtime)
 
-RUNTIME_COMMON := $(addprefix $(VENDOR)/runtime/,loader.c game_patches.c game_slot.c services.c romfs.c romfs_directory.c threads.c gate.S hle_stack.S hle_stack.c thread_enter.S gfx_bridge.c frontend.m account.c input.c hid_feedback.c motion_fusion.c autoload.c gamepad.m gamepad_feedback.m gfx_probe.c vpool_probe.m gpu_path_probe.m memory_probe.c ipc.c nifm_offline.c friends_offline.c bcat_offline.c ngc_aho.c ngc_service.c olsc_offline.c pctl_offline.c settings_service.c audio_renderer.c audio_mixer.c audio_reverb.c audio_effects.c fs_host.c opus_codec.c movie_host.c audout_host.c time_host.c applet_host.c)
-RUNTIME_HEADERS := $(wildcard $(VENDOR)/runtime/*.h)
+RUNTIME_COMMON := $(addprefix $(ENGINE)/runtime/,loader.c game_patches.c game_slot.c services.c romfs.c romfs_directory.c threads.c gate.S hle_stack.S hle_stack.c thread_enter.S gfx_bridge.c frontend.m account.c input.c hid_feedback.c motion_fusion.c autoload.c gamepad.m gamepad_feedback.m gfx_probe.c vpool_probe.m gpu_path_probe.m memory_probe.c ipc.c nifm_offline.c friends_offline.c bcat_offline.c ngc_aho.c ngc_service.c olsc_offline.c pctl_offline.c settings_service.c audio_renderer.c audio_mixer.c audio_reverb.c audio_effects.c fs_host.c opus_codec.c movie_host.c audout_host.c time_host.c applet_host.c)
+RUNTIME_HEADERS := $(wildcard $(ENGINE)/runtime/*.h)
 RUNTIME := $(RUNTIME_COMMON) runtime/safety_stubs.c runtime/shared_font_stub.c
-RUNTIME_BOOT := $(RUNTIME_COMMON) runtime/safety_stubs.c $(VENDOR)/runtime/shared_font.c
+RUNTIME_BOOT := $(RUNTIME_COMMON) runtime/safety_stubs.c $(ENGINE)/runtime/shared_font.c
 ACNH_NORMALIZER := runtime/acnh_msl_normalize.c
 LIBS := /opt/homebrew/opt/opus/lib/libopus.a /opt/homebrew/opt/libvpx/lib/libvpx.a -lz
 FRAMEWORKS := -framework Metal -framework MetalFX -framework Foundation -framework QuartzCore -framework ImageIO -framework CoreGraphics -framework CoreText -framework UniformTypeIdentifiers -framework Cocoa -framework CoreVideo -framework CoreFoundation -framework AudioToolbox -framework GameController -framework CoreHaptics -framework IOKit
@@ -37,12 +37,12 @@ $(OUT)/build/shared_fonts_config.h: scripts/prepare_runtime.py profiles/shared-f
 
 runtime-tables: $(OUT)/build/runtime_tables.h
 
-$(OUT)/build/acnh-gfx/%.o: $(VENDOR)/% $(GFX_HEADERS) Makefile
+$(OUT)/build/acnh-gfx/%.o: $(ENGINE)/% $(GFX_HEADERS) Makefile
 	@mkdir -p "$(dir $@)"
 	xcrun clang $(NATIVE_OPT) -g -Wall -Wextra $(GFX_FLAGS) -c "$<" -o "$@"
 
 $(OUT)/build/acnh-native: Makefile $(RUNTIME) $(RUNTIME_HEADERS) $(GFX_OBJECTS) $(ACNH_NORMALIZER) $(OUT)/build/runtime_tables.h
-	xcrun clang -std=c11 $(NATIVE_OPT) -g -Wall -Wextra -Werror -Wno-deprecated-declarations -DGAME_ACNH -I$(abspath runtime) -I$(VENDOR)/runtime -I$(VENDOR)/third_party/d2r_gfx/gfx/nvn/include -I$(OUT)/build -I/opt/homebrew/opt/opus/include/opus -I/opt/homebrew/opt/libvpx/include $(RUNTIME) $(ACNH_NORMALIZER) $(GFX_OBJECTS) $(LIBS) $(FRAMEWORKS) -fobjc-arc -o "$@"
+	xcrun clang -std=c11 $(NATIVE_OPT) -g -Wall -Wextra -Werror -Wno-deprecated-declarations -DGAME_ACNH -I$(abspath runtime) -I$(ENGINE)/runtime -I$(ENGINE)/graphics/nvn/include -I$(OUT)/build -I/opt/homebrew/opt/opus/include/opus -I/opt/homebrew/opt/libvpx/include $(RUNTIME) $(ACNH_NORMALIZER) $(GFX_OBJECTS) $(LIBS) $(FRAMEWORKS) -fobjc-arc -o "$@"
 
 runtime: $(OUT)/build/acnh-native
 
@@ -52,7 +52,7 @@ acnh-msl-test:
 	@mkdir -p "$(OUT)/build"
 	$(CC) -std=c11 -Wall -Wextra -Werror ../../tests/acnh_msl_normalize_test.c runtime/acnh_msl_normalize.c -o "$(OUT)/build/acnh-msl-normalize-test"
 	"$(OUT)/build/acnh-msl-normalize-test"
-	xcrun clang -fobjc-arc -DGAME_ACNH -I$(VENDOR)/third_party/d2r_gfx/gfx/nvn ../../tests/acnh_shader_seed_policy_probe.m -framework Foundation -o "$(OUT)/build/acnh-shader-seed-policy-probe"
+	xcrun clang -fobjc-arc -DGAME_ACNH -I$(ENGINE)/graphics/nvn ../../tests/acnh_shader_seed_policy_probe.m -framework Foundation -o "$(OUT)/build/acnh-shader-seed-policy-probe"
 	"$(OUT)/build/acnh-shader-seed-policy-probe"
 	$(PY) ../../tests/test_acnh_msl_normalize.py
 
@@ -64,7 +64,7 @@ boot-check:
 	$(PY) scripts/prepare_runtime.py boot-check
 
 $(OUT)/build/acnh-native-boot: Makefile $(RUNTIME_BOOT) $(RUNTIME_HEADERS) $(GFX_OBJECTS) $(ACNH_NORMALIZER) $(OUT)/build/runtime_tables.h boot-check $(OUT)/build/shared_fonts_config.h
-	xcrun clang -std=c11 $(NATIVE_OPT) -g -Wall -Wextra -Werror -Wno-deprecated-declarations -DGAME_ACNH -DACNH_BOOT_VERIFIED=1 -I$(abspath runtime) -I$(VENDOR)/runtime -I$(VENDOR)/third_party/d2r_gfx/gfx/nvn/include -I$(OUT)/build -I/opt/homebrew/opt/opus/include/opus -I/opt/homebrew/opt/libvpx/include $(RUNTIME_BOOT) $(ACNH_NORMALIZER) $(GFX_OBJECTS) $(LIBS) $(FRAMEWORKS) -fobjc-arc -o "$@"
+	xcrun clang -std=c11 $(NATIVE_OPT) -g -Wall -Wextra -Werror -Wno-deprecated-declarations -DGAME_ACNH -DACNH_BOOT_VERIFIED=1 -I$(abspath runtime) -I$(ENGINE)/runtime -I$(ENGINE)/graphics/nvn/include -I$(OUT)/build -I/opt/homebrew/opt/opus/include/opus -I/opt/homebrew/opt/libvpx/include $(RUNTIME_BOOT) $(ACNH_NORMALIZER) $(GFX_OBJECTS) $(LIBS) $(FRAMEWORKS) -fobjc-arc -o "$@"
 
 app: $(OUT)/build/acnh-native-boot
 	$(PY) scripts/package_macos.py

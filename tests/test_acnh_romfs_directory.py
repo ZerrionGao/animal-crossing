@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VENDOR = ROOT / 'third_party/macnativegames/games/totk'
+VENDOR = ROOT / 'engine'
 REAL_ARGS = []
 if '--real-romfs' in sys.argv:
     pos = sys.argv.index('--real-romfs')
@@ -31,7 +31,7 @@ class RomfsDirectoryTests(unittest.TestCase):
             'clang', '-std=gnu11', '-O1', '-Wall', '-Wextra', '-Werror',
             '-Wno-deprecated-declarations', '-ffunction-sections', '-fdata-sections',
             '-DGAME_ACNH=1', '-I', str(tmp), '-I', str(VENDOR / 'runtime'),
-            '-I', str(VENDOR / 'third_party/d2r_gfx/gfx/nvn/include'),
+            '-I', str(ROOT / 'engine/graphics/nvn/include'),
             str(ROOT / 'tests/romfs_directory_parser_test.c'),
             str(VENDOR / 'runtime/romfs_directory.c'), '-Wl,-dead_strip',
             '-framework', 'CoreFoundation', '-o', str(cls.exe),
