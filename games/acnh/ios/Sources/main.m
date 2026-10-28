@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <AVFAudio/AVFAudio.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <Metal/Metal.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -10,6 +11,9 @@
 #include "runtime.h"
 #include "dmsh_chain.h"
 #import "touch_pad.h"
+
+static NSString *const kACNHDockedModeKey = @"ACNHDockedMode";
+void runtime_ios_install_boot_overlay(UIView *root);
 
 int acnh_host_main(int argc, char **argv);
 void runtime_ios_attach_layer(CAMetalLayer *layer, UIView *host);
@@ -24,6 +28,22 @@ void runtime_shortcut_help_toggle(void) {}
 @interface TOTKMetalView : UIView @end
 @implementation TOTKMetalView
 + (Class)layerClass { return CAMetalLayer.class; }
+- (void)syncDrawable {
+    CAMetalLayer *layer = (CAMetalLayer *)self.layer;
+    CGFloat scale = self.window.screen.scale;
+    if (scale < 1) scale = UIScreen.mainScreen.nativeScale;
+    if (scale < 1) scale = 1;
+    if (!layer.device) layer.device = MTLCreateSystemDefaultDevice();
+    layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    layer.framebufferOnly = NO;
+    layer.contentsScale = scale;
+    CGSize px = CGSizeMake(round(self.bounds.size.width * scale), round(self.bounds.size.height * scale));
+    if (px.width < 1 || px.height < 1 || CGSizeEqualToSize(layer.drawableSize, px)) return;
+    layer.drawableSize = px;
+    fprintf(stderr, "[totk] window drawable %.0fx%.0f (scale %.0f)\n", px.width, px.height, scale);
+}
+- (void)didMoveToWindow { [super didMoveToWindow]; [self syncDrawable]; }
+- (void)layoutSubviews { [super layoutSubviews]; [self syncDrawable]; }
 @end
 
 @interface TOTKGameController : UIViewController @property(nonatomic,strong) TOTKMetalView *gameView; @end
@@ -36,6 +56,8 @@ void runtime_shortcut_help_toggle(void) {}
     [self.view addSubview:self.gameView];
     runtime_ios_attach_layer((CAMetalLayer *)self.gameView.layer, self.gameView);
     TOTKTouchPad *pad=[[TOTKTouchPad alloc] initWithFrame:self.view.bounds];pad.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;[self.view addSubview:pad];
+    runtime_ios_install_boot_overlay(self.view);
+    [self.gameView syncDrawable];
 }
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
@@ -59,6 +81,63 @@ void runtime_shortcut_help_toggle(void) {}
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 @end
 
+@interface ACNHLaunchController : UIViewController
+@property(nonatomic,strong) UISegmentedControl *mode;
+@end
+@implementation ACNHLaunchController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [UIColor colorWithRed:0.035 green:0.075 blue:0.09 alpha:1];
+    UILabel *title = [UILabel new];
+    title.text = @"集合啦！动物森友会";
+    title.font = [UIFont systemFontOfSize:28 weight:UIFontWeightSemibold];
+    title.textColor = UIColor.whiteColor;
+    title.textAlignment = NSTextAlignmentCenter;
+    UILabel *hint = [UILabel new];
+    hint.text = @"先选画面再开始。主机模式是游戏自己的 1920×1080，更清晰，发热也会更高。";
+    hint.font = [UIFont systemFontOfSize:15];
+    hint.textColor = [UIColor colorWithWhite:0.72 alpha:1];
+    hint.textAlignment = NSTextAlignmentCenter;
+    hint.numberOfLines = 0;
+    self.mode = [[UISegmentedControl alloc] initWithItems:@[@"主机 1920×1080", @"掌机 1280×720"]];
+    BOOL docked = YES;
+    if ([NSUserDefaults.standardUserDefaults objectForKey:kACNHDockedModeKey])
+        docked = [NSUserDefaults.standardUserDefaults boolForKey:kACNHDockedModeKey];
+    self.mode.selectedSegmentIndex = docked ? 0 : 1;
+    self.mode.selectedSegmentTintColor = [UIColor colorWithRed:0.22 green:0.55 blue:0.62 alpha:1];
+    self.mode.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    UIButton *start = [UIButton buttonWithType:UIButtonTypeSystem];
+    [start setTitle:@"开始游戏" forState:UIControlStateNormal];
+    start.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
+    [start setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    start.backgroundColor = [UIColor colorWithRed:0.16 green:0.48 blue:0.56 alpha:1];
+    start.layer.cornerRadius = 12;
+    [start addTarget:self action:@selector(startGame) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[title, hint, self.mode, start]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.alignment = UIStackViewAlignmentFill;
+    stack.spacing = 18;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [stack.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
+        [stack.widthAnchor constraintEqualToAnchor:self.view.widthAnchor multiplier:0.62],
+        [start.heightAnchor constraintEqualToConstant:52],
+        [self.mode.heightAnchor constraintEqualToConstant:36],
+    ]];
+}
+- (void)startGame {
+    BOOL docked = self.mode.selectedSegmentIndex == 0;
+    [NSUserDefaults.standardUserDefaults setBool:docked forKey:kACNHDockedModeKey];
+    setenv("TOTK_OPERATION_MODE", docked ? "docked" : "handheld", 1);
+    self.view.window.rootViewController = [TOTKGameController new];
+}
+- (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
+- (BOOL)prefersStatusBarHidden { return YES; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
+@end
+
 /* iOS 27 ends apps linked against its SDK that keep the window in the app delegate (UIKit traps in
    _UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption at launch), so the window belongs to a window scene. */
 @interface ACNHSceneDelegate : UIResponder <UIWindowSceneDelegate> @property(nonatomic,strong) UIWindow *window; @end
@@ -67,7 +146,7 @@ void runtime_shortcut_help_toggle(void) {}
     (void)session; (void)options;
     if (![scene isKindOfClass:UIWindowScene.class]) return;
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-    self.window.rootViewController = [TOTKGameController new]; [self.window makeKeyAndVisible];
+    self.window.rootViewController = [ACNHLaunchController new]; [self.window makeKeyAndVisible];
 }
 @end
 
@@ -180,7 +259,6 @@ static void audio_observe(void) {
     }
     setenv("TOTK_ROMFS",[res stringByAppendingPathComponent:@"romfs"].fileSystemRepresentation,1);
     setenv("TOTK_NGC_DIR",ngc.fileSystemRepresentation,1);
-    setenv("TOTK_OPERATION_MODE","handheld",1);
     setenv("TOTK_ROMFS_PATCHES",[res stringByAppendingPathComponent:@"romfs-patches"].fileSystemRepresentation,1);
     setenv("TOTK_ROMFS_PATCHES_OUT",[res stringByAppendingPathComponent:@"romfs-patches-out"].fileSystemRepresentation,1);
     setenv("TOTK_SHARED_FONTS",[res stringByAppendingPathComponent:@"shared-fonts"].fileSystemRepresentation,1);
