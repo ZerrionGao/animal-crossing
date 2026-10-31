@@ -33,4 +33,6 @@ games/acnh/ios/ACNH.xcodeproj/
 **/bin/
 **/obj/
 
+HANDOFF.md
+
 codex-session-*.md

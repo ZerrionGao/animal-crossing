@@ -5,12 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-void runtime_account_uid(uint64_t out[2]);
+int runtime_account_index(const uint64_t uid[2]);
 
 #ifdef GAME_ACNH
 typedef struct { atomic_int initialized; } OlscSession;
 /* SetSaveDataBackupSettingEnabled（命令 14）只在本进程记录，GetSaveDataBackupSetting（命令 13）读回；没有云备份。 */
-static atomic_int backup_enabled;
+static atomic_int backup_enabled[2];
 
 static void *olsc_open(void) {
     OlscSession *state = calloc(1, sizeof *state);
@@ -59,12 +59,12 @@ static void olsc_handler(IpcSession *session, const IpcRequest *request, IpcResp
         if (!atomic_load(&state->initialized)) runtime_fail("ACNH olsc GetSetting before Initialize");
         if (!root_domain_request(request, 0, 16))
             runtime_fail("ACNH olsc GetSetting request shape is not supported");
-        uint64_t requested_uid[2], local_uid[2];
+        uint64_t requested_uid[2];
         memcpy(requested_uid, request->data, sizeof requested_uid);
-        runtime_account_uid(local_uid);
-        if (requested_uid[0] != local_uid[0] || requested_uid[1] != local_uid[1])
+        int index = runtime_account_index(requested_uid);
+        if (index < 0 || index >= 2)
             runtime_fail("ACNH olsc GetSetting UID is not the local user");
-        uint8_t enabled = (uint8_t)atomic_load(&backup_enabled);
+        uint8_t enabled = (uint8_t)atomic_load(&backup_enabled[index]);
         ipc_out(response, &enabled, sizeof enabled);
         return;
     }
@@ -73,14 +73,14 @@ static void olsc_handler(IpcSession *session, const IpcRequest *request, IpcResp
         if (!root_domain_request(request, 0, 24))
             runtime_fail("ACNH olsc SetSettingEnabled request shape is not supported");
         uint8_t enabled;
-        uint64_t requested_uid[2], local_uid[2];
+        uint64_t requested_uid[2];
         memcpy(&enabled, request->data, sizeof enabled);
         memcpy(requested_uid, (const uint8_t *)request->data + 8, sizeof requested_uid);
-        runtime_account_uid(local_uid);
-        if (requested_uid[0] != local_uid[0] || requested_uid[1] != local_uid[1])
+        int index = runtime_account_index(requested_uid);
+        if (index < 0 || index >= 2)
             runtime_fail("ACNH olsc SetSettingEnabled UID is not the local user");
         if (enabled > 1) runtime_fail("ACNH olsc SetSettingEnabled value is not a bool");
-        atomic_store(&backup_enabled, enabled);
+        atomic_store(&backup_enabled[index], enabled);
         fprintf(stderr, "[acnh-olsc] save data backup setting for the local user: %s (kept in this process only)\n",
                 enabled ? "enabled" : "disabled");
         return;

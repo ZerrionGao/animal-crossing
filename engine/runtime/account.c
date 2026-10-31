@@ -65,6 +65,16 @@ static void close_user(const UserHandle *handle){lock_acquire();if(!valid(handle
 static uint32_t existence(unsigned char *out,const Uid *uid){if(!out||!uid)return 0x7c67;initialize();*out=same(uid);return 0;}
 static uint32_t nickname(char *out,const Uid *uid){initialize();if(!out||!same(uid))return 0x7c67;memset(out,0,33);memcpy(out,"Local",5);return 0;}
 void runtime_account_uid(uint64_t out[2]){initialize();out[0]=local.lo;out[1]=local.hi;}
+int runtime_account_index(const uint64_t uid[2]){
+ if(!uid || (!uid[0] && !uid[1]))return -1;
+ initialize();
+#ifdef GAME_ACNH
+ for(int i=0;i<2;i++)if(uid[0]==residents[i].lo && uid[1]==residents[i].hi)return i;
+#else
+ if(uid[0]==local.lo && uid[1]==local.hi)return 0;
+#endif
+ return -1;
+}
 #ifdef GAME_BOTW
 /* SDK 7 (Breath of the Wild 1.6.0, botw.md) opens the preselected user with the aborting variant and lists the users. */
 static void open_preselected(UserHandle *out){if(!preselected(out))runtime_fail("open preselected user");}

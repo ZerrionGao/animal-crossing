@@ -58,6 +58,9 @@ class AcnhOlscOfflineTests(unittest.TestCase):
         self.assertIn("backup setting for the local user: enabled (kept in this process only)", stderr)
         self.assertNotIn("1122334455667788", stderr)
 
+    def test_residents_have_independent_settings(self):
+        self.run_probe("two-residents")
+
     def test_get_setting_requires_initialize_for_each_session(self):
         for mode in ("uninitialized", "reopened-session"):
             with self.subTest(mode=mode):

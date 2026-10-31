@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../engine/runtime/runtime.h"
+#include "../engine/runtime/fs_host.h"
 
 typedef struct { uint64_t lo, hi; } ProbeUid;
 typedef uint32_t (*ListUsersFn)(int *, ProbeUid *, int);
@@ -41,6 +42,18 @@ int main(void) {
     ListUsersFn list = (ListUsersFn)runtime_account_override(symbol);
 #ifdef GAME_ACNH
     assert(list);
+    if (getenv("TEST_TWO_RESIDENTS")) {
+        ProbeUid users[8]; int count = 0;
+        assert(list(&count, users, 8) == 0 && count == 2);
+        assert((users[0].lo || users[0].hi) && (users[1].lo || users[1].hi));
+        assert(users[0].lo != users[1].lo || users[0].hi != users[1].hi);
+        for (int i = 2; i < 8; i++) assert(!users[i].lo && !users[i].hi);
+        check_persistent_uid(&users[0]);
+        uint64_t selected[2]; runtime_account_uid(selected);
+        int which = getenv("ACNH_USER") && !strcmp(getenv("ACNH_USER"), "1");
+        assert(selected[0] == users[which].lo && selected[1] == users[which].hi);
+        return 0;
+    }
     ProbeUid values[8];
     for (int i = 0; i < 8; i++) values[i] = (ProbeUid){0xa1a1a1a1a1a1a1a1ULL, 0xb2b2b2b2b2b2b2b2ULL};
     int count = -7;

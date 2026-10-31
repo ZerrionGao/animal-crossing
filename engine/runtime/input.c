@@ -96,7 +96,7 @@ static void supported_ids(const uint32_t *ids,uint64_t n){if(n>10||(!ids&&n))run
 static void supported_styles(uint32_t value){pthread_mutex_lock(&inputLock);styles=value;pthread_mutex_unlock(&inputLock);}
 static uint32_t style(const uint32_t *id){if(!id)runtime_fail("controller id pointer");input_log("style set",*id);pthread_mutex_lock(&inputLock);uint32_t v=enabled&&allowed&&*id==pad_id()?(styles&pad_style()):0;
 #ifdef GAME_ACNH
- if (enabled && secondAllowed && *id == 1 && !runtime_handheld_mode()) { RuntimeGamepadState p; runtime_gamepad_read_player(1, &p); if(p.connected) v=styles&1; }
+ if (enabled && secondAllowed && *id == 1 && !runtime_handheld_mode() && runtime_gamepad_player_connected(1)) v=styles&1;
 #endif
  pthread_mutex_unlock(&inputLock);return v;}
 static int pad_states(NpadState *out,int max,const uint32_t *id,uint32_t want_style);
@@ -243,7 +243,7 @@ _Static_assert(sizeof(ControllerSupportResult)==8,"controller support result ABI
 static uint32_t show_controller_support(ControllerSupportResult *out,const void *arg){
  (void)arg; int players=1;
 #ifdef GAME_ACNH
- if(!runtime_handheld_mode()){RuntimeGamepadState p;runtime_gamepad_read_player(1,&p);if(p.connected)players=2;}
+ if(!runtime_handheld_mode() && runtime_gamepad_player_connected(1))players=2;
 #endif
  if(out)*out=(ControllerSupportResult){.players=players,.selected=pad_id()};
  static int once;if(!once++)fprintf(stderr,"[totk] controller support applet: one player on controller %#x\n",pad_id());

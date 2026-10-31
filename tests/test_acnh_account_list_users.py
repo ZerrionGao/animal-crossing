@@ -59,6 +59,26 @@ class AcnhAccountListUsersTests(unittest.TestCase):
             self.run_probe(self.binaries["botw"], profile)
             self.run_probe(self.binaries["other"], profile)
 
+    def test_two_residents_persist_across_selection_and_restarts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = Path(tmp) / "profile"
+            binary = self.binaries["acnh"]
+            self.run_probe(binary, profile)
+            original = (profile / "account.uid").read_bytes()
+            saved_second = None
+            for selection in ("1", "0", "1"):
+                result = subprocess.run([str(binary)], env={**os.environ, "TOTK_PROFILE_DIR": str(profile),
+                                        "ACNH_USER": selection, "TEST_TWO_RESIDENTS": "1"},
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((profile / "account.uid").read_bytes(), original)
+                second = (profile / "account2.uid").read_bytes()
+                self.assertEqual(len(second), 16)
+                self.assertNotEqual(second, original)
+                if saved_second is None:
+                    saved_second = second
+                self.assertEqual(second, saved_second)
+
 
 if __name__ == "__main__":
     unittest.main()

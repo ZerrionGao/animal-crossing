@@ -131,6 +131,7 @@ typedef struct { uint64_t buttons; int32_t lx,ly,rx,ry; int connected; } Runtime
 void runtime_gamepad_start(void);
 void runtime_gamepad_read(RuntimeGamepadState *out);
 void runtime_gamepad_read_player(unsigned player, RuntimeGamepadState *out);
+int runtime_gamepad_player_connected(unsigned player);
 /* Forget held buttons and sticks: macOS stops delivering controller events (including releases) while the app is in
    the background, so a button held at focus loss would otherwise stay pressed for the game. */
 void runtime_gamepad_clear(void);

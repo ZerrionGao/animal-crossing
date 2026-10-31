@@ -35,6 +35,12 @@ void runtime_account_uid(uint64_t out[2]) {
     out[0] = 0x1122334455667788ULL;
     out[1] = 0x8877665544332211ULL;
 }
+int runtime_account_index(const uint64_t uid[2]) {
+    if (uid[1] != 0x8877665544332211ULL) return -1;
+    if (uid[0] == 0x1122334455667788ULL) return 0;
+    if (uid[0] == 0x1122334455667789ULL) return 1;
+    return -1;
+}
 
 static void send_frame(uint32_t handle, uint32_t *message) {
     uint64_t regs[31] = {0};
@@ -211,6 +217,19 @@ int main(int argc, char **argv) {
         assert(response_result(message, 1) == 0);
         send_get_setting(olsc, message, uid, 0, 0, 0);
         assert(response_result(message, 1) == 0 && *((uint8_t *)message + 48) == 1);
+        runtime_ipc_session_closed(runtime_handle_get(olsc, 1));
+        return 0;
+    }
+    if (!strcmp(mode, "two-residents")) {
+        const uint64_t second[2] = {0x1122334455667789ULL, 0x8877665544332211ULL};
+        uint32_t olsc = open_and_convert(message);
+        send_init(olsc, message, 0, 1);
+        send_set_setting(olsc, message, 1, uid);
+        send_set_setting(olsc, message, 0, second);
+        send_get_setting(olsc, message, uid, 0, 0, 0);
+        assert(response_result(message, 1) == 0 && *((uint8_t *)message + 48) == 1);
+        send_get_setting(olsc, message, second, 0, 0, 0);
+        assert(response_result(message, 1) == 0 && *((uint8_t *)message + 48) == 0);
         runtime_ipc_session_closed(runtime_handle_get(olsc, 1));
         return 0;
     }
