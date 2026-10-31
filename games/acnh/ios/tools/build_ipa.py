@@ -304,7 +304,8 @@ def package(args: argparse.Namespace) -> Path:
     if resources.exists():
         shutil.rmtree(resources)
     resources.parent.mkdir(parents=True, exist_ok=True)
-    copy_tree(WORK / 'romfs', resources / 'romfs')
+    if not args.external_romfs:
+        copy_tree(WORK / 'romfs', resources / 'romfs')
     copy_tree(WORK / 'shared-fonts', resources / 'shared-fonts')
     copy_tree(ngc, resources / 'ngc')
     copy_tree(seed, resources / 'shader-seed')
@@ -369,7 +370,7 @@ def package(args: argparse.Namespace) -> Path:
         if bad:
             raise RuntimeError(f'IPA ZIP CRC 校验失败：{bad}')
         names = archive.namelist()
-        if 'Payload/ACNH.app/ACNH' not in names or 'Payload/ACNH.app/GameData/romfs/romfs.bin' not in names:
+        if 'Payload/ACNH.app/ACNH' not in names or (not args.external_romfs and 'Payload/ACNH.app/GameData/romfs/romfs.bin' not in names):
             raise RuntimeError('IPA 缺少主程序或 ACNH RomFS')
     print(json.dumps({'ipa': str(output), 'bytes': output.stat().st_size, 'sha256': sha256(output),
                       'bundle_id': BUNDLE_ID, 'team_id': team, 'development_identity_sha1': identity,
@@ -383,6 +384,7 @@ def main() -> None:
     parser.add_argument('--output', type=Path, default=WORK / 'ACNH-iPhone.ipa')
     parser.add_argument('--device', default='726E8C20-4F82-5E2E-A72E-0C8CD22FACBF')
     parser.add_argument('--team-id', help='在 Xcode 自动签名时指定已登录的 Apple 开发者团队')
+    parser.add_argument('--external-romfs', action='store_true', help='将 RomFS 留在外部，运行前需导入资源')
     parser.add_argument('--unsigned', action='store_true', help='生成不可直接安装的 unsigned IPA，用于本机签名配置缺失时预检资源包')
     package(parser.parse_args())
 

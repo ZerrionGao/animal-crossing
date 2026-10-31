@@ -13,6 +13,20 @@
 #import "touch_pad.h"
 
 static NSString *const kACNHDockedModeKey = @"ACNHDockedMode";
+static NSString *ACNHRomfsPath(void) {
+    NSString *bundled = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"GameData/romfs"];
+    if ([NSFileManager.defaultManager fileExistsAtPath:[bundled stringByAppendingPathComponent:@"romfs.bin"]]) return bundled;
+    NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    return [docs stringByAppendingPathComponent:@"ACNHResources/romfs"];
+}
+static BOOL ACNHRomfsAvailable(void) {
+    NSFileManager *fm = NSFileManager.defaultManager; NSString *path = ACNHRomfsPath();
+    for (NSString *name in @[@"romfs.bin", @"runtime-index.bin"]) {
+        NSDictionary *attrs = [fm attributesOfItemAtPath:[path stringByAppendingPathComponent:name] error:nil];
+        if (![attrs[NSFileType] isEqualToString:NSFileTypeRegular] || [attrs[NSFileSize] unsignedLongLongValue] == 0) return NO;
+    }
+    return YES;
+}
 void runtime_ios_install_boot_overlay(UIView *root);
 
 int acnh_host_main(int argc, char **argv);
@@ -81,22 +95,48 @@ void runtime_shortcut_help_toggle(void) {}
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
 @end
 
+/* 用轻淡的三角草纹呼应游戏画面，装饰层不参与触摸。 */
+@interface ACNHLaunchBackground : UIView @end
+@implementation ACNHLaunchBackground
+- (void)drawRect:(CGRect)rect {
+    CGContextRef c = UIGraphicsGetCurrentContext();
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    NSArray *colors = @[(id)[UIColor colorWithRed:.77 green:.89 blue:.79 alpha:1].CGColor,
+                        (id)[UIColor colorWithRed:.94 green:.94 blue:.80 alpha:1].CGColor,
+                        (id)[UIColor colorWithRed:.83 green:.91 blue:.75 alpha:1].CGColor];
+    CGGradientRef gradient = CGGradientCreateWithColors(space, (__bridge CFArrayRef)colors, NULL);
+    CGContextDrawLinearGradient(c, gradient, CGPointZero, CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds)), 0);
+    CGGradientRelease(gradient); CGColorSpaceRelease(space);
+    CGContextSetFillColorWithColor(c, [UIColor colorWithRed:0.54 green:0.69 blue:0.38 alpha:0.12].CGColor);
+    for (CGFloat y = 12; y < self.bounds.size.height; y += 38) {
+        for (CGFloat x = 15 + ((int)(y / 38) % 2) * 24; x < self.bounds.size.width; x += 48) {
+            CGContextMoveToPoint(c, x, y); CGContextAddLineToPoint(c, x + 10, y + 4);
+            CGContextAddLineToPoint(c, x + 3, y + 11); CGContextClosePath(c); CGContextFillPath(c);
+        }
+    }
+}
+@end
+
 @interface ACNHLaunchController : UIViewController
 @property(nonatomic,strong) UISegmentedControl *mode;
 @end
 @implementation ACNHLaunchController
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = [UIColor colorWithRed:0.035 green:0.075 blue:0.09 alpha:1];
+    self.view.backgroundColor = [UIColor colorWithRed:0.91 green:0.94 blue:0.78 alpha:1];
+    ACNHLaunchBackground *background = [[ACNHLaunchBackground alloc] initWithFrame:self.view.bounds];
+    background.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    background.userInteractionEnabled = NO;
+    [self.view addSubview:background];
     UILabel *title = [UILabel new];
     title.text = @"集合啦！动物森友会";
-    title.font = [UIFont systemFontOfSize:28 weight:UIFontWeightSemibold];
-    title.textColor = UIColor.whiteColor;
+    title.font = [UIFont systemFontOfSize:28 weight:UIFontWeightBold];
+    title.textColor = [UIColor colorWithRed:0.25 green:0.30 blue:0.20 alpha:1];
     title.textAlignment = NSTextAlignmentCenter;
     UILabel *hint = [UILabel new];
     hint.text = @"先选画面再开始。主机模式是游戏自己的 1920×1080，更清晰，发热也会更高。";
     hint.font = [UIFont systemFontOfSize:15];
-    hint.textColor = [UIColor colorWithWhite:0.72 alpha:1];
+    hint.textColor = [UIColor colorWithRed:0.35 green:0.38 blue:0.29 alpha:1];
     hint.textAlignment = NSTextAlignmentCenter;
     hint.numberOfLines = 0;
     self.mode = [[UISegmentedControl alloc] initWithItems:@[@"主机 1920×1080", @"掌机 1280×720"]];
@@ -104,30 +144,70 @@ void runtime_shortcut_help_toggle(void) {}
     if ([NSUserDefaults.standardUserDefaults objectForKey:kACNHDockedModeKey])
         docked = [NSUserDefaults.standardUserDefaults boolForKey:kACNHDockedModeKey];
     self.mode.selectedSegmentIndex = docked ? 0 : 1;
-    self.mode.selectedSegmentTintColor = [UIColor colorWithRed:0.22 green:0.55 blue:0.62 alpha:1];
-    self.mode.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+    self.mode.backgroundColor = [UIColor colorWithRed:0.42 green:0.57 blue:0.42 alpha:0.18];
+    self.mode.layer.cornerRadius = 12;
+    self.mode.layer.borderWidth = 1;
+    self.mode.layer.borderColor = [UIColor colorWithRed:1 green:1 blue:.94 alpha:.65].CGColor;
+    self.mode.selectedSegmentTintColor = [UIColor colorWithRed:0.99 green:0.99 blue:0.93 alpha:0.88];
+    NSDictionary *modeText = @{NSForegroundColorAttributeName: [UIColor colorWithRed:0.25 green:0.30 blue:0.20 alpha:1], NSFontAttributeName: [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]};
+    [self.mode setTitleTextAttributes:modeText forState:UIControlStateNormal];
+    [self.mode setTitleTextAttributes:modeText forState:UIControlStateSelected];
     UIButton *start = [UIButton buttonWithType:UIButtonTypeSystem];
     [start setTitle:@"开始游戏" forState:UIControlStateNormal];
     start.titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
     [start setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    start.backgroundColor = [UIColor colorWithRed:0.16 green:0.48 blue:0.56 alpha:1];
-    start.layer.cornerRadius = 12;
+    start.backgroundColor = [UIColor colorWithRed:0.16 green:0.44 blue:0.32 alpha:0.90];
+    start.layer.cornerRadius = 26;
+    start.layer.borderWidth = 1.5;
+    start.layer.borderColor = [UIColor colorWithRed:.91 green:.96 blue:.77 alpha:.75].CGColor;
+    start.layer.shadowColor = [UIColor colorWithRed:.15 green:.37 blue:.26 alpha:1].CGColor;
+    start.layer.shadowOpacity = .20; start.layer.shadowRadius = 7; start.layer.shadowOffset = CGSizeMake(0, 3);
     [start addTarget:self action:@selector(startGame) forControlEvents:UIControlEventTouchUpInside];
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[title, hint, self.mode, start]];
     stack.axis = UILayoutConstraintAxisVertical;
     stack.alignment = UIStackViewAlignmentFill;
-    stack.spacing = 18;
+    stack.spacing = 14;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:stack];
+    UIView *card = [UIView new];
+    card.backgroundColor = UIColor.clearColor;
+    card.layer.cornerRadius = 28;
+    card.layer.shadowColor = [UIColor colorWithRed:0.30 green:0.38 blue:0.19 alpha:1].CGColor;
+    card.layer.shadowOpacity = 0.14; card.layer.shadowRadius = 14; card.layer.shadowOffset = CGSizeMake(0, 5);
+    card.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:card];
+    UIVisualEffectView *glass = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialLight]];
+    glass.translatesAutoresizingMaskIntoConstraints = NO;
+    glass.layer.cornerRadius = 28; glass.layer.masksToBounds = YES;
+    glass.layer.borderWidth = 1.5;
+    glass.layer.borderColor = [UIColor colorWithRed:1 green:1 blue:.95 alpha:.75].CGColor;
+    [card addSubview:glass];
+    [glass.contentView addSubview:stack];
+    NSLayoutConstraint *preferredWidth = [card.widthAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.widthAnchor multiplier:0.80];
+    preferredWidth.priority = UILayoutPriorityDefaultHigh;
     [NSLayoutConstraint activateConstraints:@[
-        [stack.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [stack.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor],
-        [stack.widthAnchor constraintEqualToAnchor:self.view.widthAnchor multiplier:0.62],
+        [card.centerXAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerXAnchor],
+        [card.centerYAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerYAnchor],
+        preferredWidth,
+        [card.widthAnchor constraintLessThanOrEqualToAnchor:self.view.safeAreaLayoutGuide.widthAnchor constant:-24],
+        [glass.leadingAnchor constraintEqualToAnchor:card.leadingAnchor],
+        [glass.trailingAnchor constraintEqualToAnchor:card.trailingAnchor],
+        [glass.topAnchor constraintEqualToAnchor:card.topAnchor],
+        [glass.bottomAnchor constraintEqualToAnchor:card.bottomAnchor],
+        [card.widthAnchor constraintLessThanOrEqualToConstant:680],
+        [stack.leadingAnchor constraintEqualToAnchor:glass.contentView.leadingAnchor constant:24],
+        [stack.trailingAnchor constraintEqualToAnchor:glass.contentView.trailingAnchor constant:-24],
+        [stack.topAnchor constraintEqualToAnchor:glass.contentView.topAnchor constant:20],
+        [stack.bottomAnchor constraintEqualToAnchor:glass.contentView.bottomAnchor constant:-20],
         [start.heightAnchor constraintEqualToConstant:52],
-        [self.mode.heightAnchor constraintEqualToConstant:36],
+        [self.mode.heightAnchor constraintEqualToConstant:44],
     ]];
 }
 - (void)startGame {
+    if (!ACNHRomfsAvailable()) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"请先导入游戏资源" message:@"请将资源包中的 ACNHResources 文件夹放入“文件”App 中本游戏的文件夹，然后重新点击开始游戏。" preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil]; return;
+    }
     BOOL docked = self.mode.selectedSegmentIndex == 0;
     [NSUserDefaults.standardUserDefaults setBool:docked forKey:kACNHDockedModeKey];
     setenv("TOTK_OPERATION_MODE", docked ? "docked" : "handheld", 1);
@@ -257,7 +337,7 @@ static void audio_observe(void) {
     if (![fm fileExistsAtPath:[ngc stringByAppendingPathComponent:@"ac_common_not_b_nx"]]) {
         fprintf(stderr, "[acnh] missing bundled NgWord2 common table\n"); return NO;
     }
-    setenv("TOTK_ROMFS",[res stringByAppendingPathComponent:@"romfs"].fileSystemRepresentation,1);
+    setenv("TOTK_ROMFS",ACNHRomfsPath().fileSystemRepresentation,1);
     setenv("TOTK_NGC_DIR",ngc.fileSystemRepresentation,1);
     setenv("TOTK_ROMFS_PATCHES",[res stringByAppendingPathComponent:@"romfs-patches"].fileSystemRepresentation,1);
     setenv("TOTK_ROMFS_PATCHES_OUT",[res stringByAppendingPathComponent:@"romfs-patches-out"].fileSystemRepresentation,1);
