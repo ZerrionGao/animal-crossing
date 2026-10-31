@@ -12,6 +12,9 @@
 typedef struct{uint64_t lo,hi;} Uid;
 typedef struct{Uid uid;uint64_t token;} UserHandle;
 static Uid local;
+#ifdef GAME_ACNH
+static Uid residents[2];
+#endif
 /* Canaries around the lock: an intermittent hang showed this mutex's internal words changed while nobody held it. */
 #define GUARD 0x6163636f756e7447ULL
 static struct{uint64_t pre[8];pthread_mutex_t m;uint64_t post[8];} guarded={{GUARD,GUARD,GUARD,GUARD,GUARD,GUARD,GUARD,GUARD},PTHREAD_MUTEX_INITIALIZER,{GUARD,GUARD,GUARD,GUARD,GUARD,GUARD,GUARD,GUARD}};
@@ -31,9 +34,30 @@ static void initialize(void){
  struct stat st;if(fstat(fd,&st)||!S_ISREG(st.st_mode))runtime_fail("invalid local account identity file");
  if(st.st_size==0){do{arc4random_buf(&local,sizeof(local));}while(!local.lo&&!local.hi);if(write(fd,&local,sizeof(local))!=sizeof(local)||fsync(fd))runtime_fail("persist local account identity");}
  else if(st.st_size!=sizeof(local)||pread(fd,&local,sizeof(local),0)!=sizeof(local)||(!local.lo&&!local.hi))runtime_fail("corrupt local account identity");
- close(fd);lock_release();fprintf(stderr,"[totk] persistent local account initialized\n");
+ close(fd);
+#ifdef GAME_ACNH
+ residents[0]=local;
+ const char *selection=getenv("ACNH_USER"); int selected=selection && !strcmp(selection,"1");
+ if(snprintf(path,sizeof(path),"%s/account2.uid",dir)>=(int)sizeof(path))runtime_fail("second account path length");
+ fd=open(path,O_RDWR|O_NOFOLLOW|(selected?O_CREAT:0),0600);
+ if(fd>=0){
+  if(flock(fd,LOCK_EX)||fstat(fd,&st)||!S_ISREG(st.st_mode))runtime_fail("invalid second account identity file");
+  if(st.st_size==0 && selected){do{arc4random_buf(&residents[1],sizeof(Uid));}while(!residents[1].lo&&!residents[1].hi);if(write(fd,&residents[1],sizeof(Uid))!=sizeof(Uid)||fsync(fd))runtime_fail("persist second account identity");}
+  else if(st.st_size!=sizeof(Uid)||pread(fd,&residents[1],sizeof(Uid),0)!=sizeof(Uid)||(!residents[1].lo&&!residents[1].hi))runtime_fail("corrupt second account identity");
+  close(fd);
+ } else if(errno!=ENOENT || selected)runtime_fail("open second account identity");
+ if(selected)local=residents[1];
+#endif
+ lock_release();fprintf(stderr,"[totk] persistent local account initialized\n");
 }
-static bool same(const Uid *uid){return uid&&uid->lo==local.lo&&uid->hi==local.hi;}
+static bool same(const Uid *uid){
+ if(!uid || (!uid->lo && !uid->hi))return false;
+#ifdef GAME_ACNH
+ return (uid->lo==residents[0].lo && uid->hi==residents[0].hi)||(uid->lo==residents[1].lo && uid->hi==residents[1].hi);
+#else
+ return uid->lo==local.lo&&uid->hi==local.hi;
+#endif
+}
 static bool valid(const UserHandle *handle){if(!handle||!same(&handle->uid))return false;for(unsigned i=0;i<64;i++)if(tokens[i]&&tokens[i]==handle->token)return true;return false;}
 static unsigned preselected(UserHandle *out){if(!out)runtime_fail("account null user handle");initialize();lock_acquire();for(unsigned i=0;i<64;i++)if(!tokens[i]){tokens[i]=nextToken++;*out=(UserHandle){local,tokens[i]};lock_release();return 1;}lock_release();return 0;}
 static uint32_t user_id(Uid *out,const UserHandle *handle){lock_acquire();bool ok=out&&valid(handle);if(ok)*out=local;lock_release();return ok?0:0x7c67;}
@@ -52,8 +76,8 @@ static uint32_t list_users(int *count,Uid *out,int max){initialize();if(!count||
 static uint32_t list_users_acnh(int *count,Uid *out,int max){
  if(!count||(max>0&&!out))return 0x7c67;
  initialize();
- *count=1;
- for(int i=0;i<max;i++)out[i]=i?(Uid){0,0}:local;
+ *count=(residents[1].lo||residents[1].hi)?2:1;
+ for(int i=0;i<max;i++)out[i]=i<*count?residents[i]:(Uid){0,0};
  return 0;
 }
 /* 本地句柄在 +0x10 放的是序号，原 SDK 却把它当成网络账号对象。这些查询改为离线失败，避免空指针。 */

@@ -239,11 +239,6 @@ def place_data_bundle(bundle: Path, app: Path, res: Path) -> None:
 def place_resources(work: Path, res: Path, app: Path, logs: Path) -> None:
     clone(work / 'build/acnh-native-boot', res / 'build/acnh-native-boot')
     clone(work / 'rewritten', res / 'rewritten')
-    place_data_bundle(data_bundle(work, logs), app, res)
-    for name in ('runtime-index.bin', '.romfs-verified-v1'):
-        src = work / 'romfs' / name
-        if src.is_file():
-            clone(src, res / 'romfs' / name)
     clone(work / 'shared-fonts', res / 'shared-fonts')
     clone(args_ngc(work), res / 'ngc')
     clone(work / 'build/shader-service/totk_xlate', res / 'build/shader-service/totk_xlate')
@@ -315,7 +310,7 @@ def assemble(work: Path, out: Path, expected: dict, *, skip_icon: bool, skip_use
     tmp.rename(out)
     if not skip_user_data:
         seed_user_data(work)
-    check = subprocess.run([str(out / f'Contents/MacOS/{EXECUTABLE}'), '--check'], capture_output=True, text=True, timeout=120)
+    check = subprocess.run([str(out / f'Contents/MacOS/{EXECUTABLE}'), '--check'], capture_output=True, text=True, timeout=120, env=dict(os.environ, ACNH_RESOURCE_DIR=str(work / 'romfs')))
     require(check.returncode == 0 and check.stdout.startswith('ok:'), f'--check 失败：{check.stdout}{check.stderr}')
     say(f'完成：{out}')
     say(f'存档目录：{Path.home() / "Library/Application Support/MacNativeGames/ACNH/profile"}')

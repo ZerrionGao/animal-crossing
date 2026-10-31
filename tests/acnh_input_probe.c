@@ -15,6 +15,7 @@ int runtime_handheld_mode(void) { return 0; }
 void runtime_gamepad_read(RuntimeGamepadState *out) {
     *out = (RuntimeGamepadState){0};
 }
+void runtime_gamepad_read_player(unsigned player, RuntimeGamepadState *out) { (void)player; *out = (RuntimeGamepadState){0}; }
 void runtime_gamepad_clear(void) {}
 void *runtime_hid_feedback_override(const char *name) { (void)name; return NULL; }
 int runtime_hid_feedback_flag(const char *name, int value) { (void)name; (void)value; return 0; }

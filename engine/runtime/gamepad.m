@@ -11,6 +11,7 @@
 
 static pthread_mutex_t gamepadLock = PTHREAD_MUTEX_INITIALIZER;
 static RuntimeGamepadState gamepadState;
+static RuntimeGamepadState secondGamepadState;
 static uint64_t pressedEdges;
 static BOOL started;
 static uint16_t controllerMap[CONTROLLER_BUTTONS];
@@ -79,9 +80,18 @@ static uint64_t gamepad_buttons(GCExtendedGamepad *pad, int by_position) {
 static void refresh_gamepads(void) {
     RuntimeGamepadState next = {0};
     uint64_t physical = 0;
+    RuntimeGamepadState second = {0}; unsigned player = 0;
     for (GCController *controller in GCController.controllers) {
         GCExtendedGamepad *pad = controller.extendedGamepad;
         if (!pad) continue;
+        if (player++ == 1) {
+            second.connected = 1;
+            second.buttons = controller_map_apply(controllerMap, gamepad_buttons(pad, face_by_position(controller)));
+            second.lx = stick_axis(pad.leftThumbstick.xAxis.value); second.ly = stick_axis(pad.leftThumbstick.yAxis.value);
+            second.rx = stick_axis(pad.rightThumbstick.xAxis.value); second.ry = stick_axis(pad.rightThumbstick.yAxis.value);
+            continue;
+        }
+        if (player > 2) continue;
         next.connected = 1;
         physical |= gamepad_buttons(pad, face_by_position(controller));
         next.lx = stronger_axis(next.lx, stick_axis(pad.leftThumbstick.xAxis.value));
@@ -124,7 +134,7 @@ static void refresh_gamepads(void) {
     next.buttons |= controller_map_apply(controllerMap, held) | synthetic;
     pthread_mutex_lock(&gamepadLock);
     pressedEdges |= next.buttons & ~gamepadState.buttons;
-    gamepadState = next;
+    gamepadState = next; secondGamepadState = second;
     pthread_mutex_unlock(&gamepadLock);
 }
 
@@ -168,7 +178,7 @@ void runtime_gamepad_clear(void) {
     memset(toggleOn, 0, sizeof toggleOn);
     memset(toggleMoved, 0, sizeof toggleMoved);
     pthread_mutex_lock(&gamepadLock);
-    gamepadState = (RuntimeGamepadState){0};
+    gamepadState = (RuntimeGamepadState){0}; secondGamepadState = (RuntimeGamepadState){0};
     pressedEdges = 0;
     pthread_mutex_unlock(&gamepadLock);
 }
@@ -192,5 +202,12 @@ void runtime_gamepad_read(RuntimeGamepadState *out) {
     out->rx = stronger_axis(out->rx, touchState.rx); out->ry = stronger_axis(out->ry, touchState.ry);
     if (touchState.connected) out->connected = 1;
     pressedEdges = 0;
+    pthread_mutex_unlock(&gamepadLock);
+}
+
+void runtime_gamepad_read_player(unsigned player, RuntimeGamepadState *out) {
+    if (player == 0) { runtime_gamepad_read(out); return; }
+    pthread_mutex_lock(&gamepadLock);
+    *out = player == 1 ? secondGamepadState : (RuntimeGamepadState){0};
     pthread_mutex_unlock(&gamepadLock);
 }

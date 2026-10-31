@@ -13,7 +13,7 @@ typedef struct{int64_t sampling;uint64_t buttons;int32_t lx,ly,rx,ry;uint32_t at
 _Static_assert(sizeof(NpadState)==40,"Npad full-key ABI");
 static pthread_mutex_t inputLock=PTHREAD_MUTEX_INITIALIZER;
 static unsigned char keys[128];static uint64_t pending;
-static uint32_t styles=1;static bool enabled,allowed=true;static int holdType;
+static uint32_t styles=1;static bool enabled,allowed=true;static bool secondAllowed;static int holdType;
 static int64_t sample;static uint64_t padSeen;
 /* F/T/H/G map the D-pad left/up/right/down, keeping both analog-stick mappings independent. */
 static uint64_t button(unsigned code){switch(code){case 38:return 1;case 40:case 49:return 2;case 34:return 4;case 32:return 8;case 6:return 16;case 8:return 32;case 12:return 64;case 14:return 128;case 58:return 256;case 56:return 512;case 36:return 1024;case 48:case 53:return 2048;case 3:return 4096;case 17:return 8192;case 4:return 16384;case 5:return 32768;default:return 0;}}
@@ -92,9 +92,13 @@ static void input_log(const char *what,uint32_t id){static int on=-1;static uint
 static uint32_t pad_id(void){return runtime_handheld_mode()?0x20u:0u;}
 static uint32_t pad_style(void){return runtime_handheld_mode()?2u:1u;}
 static void supported_ids(const uint32_t *ids,uint64_t n){if(n>10||(!ids&&n))runtime_fail("invalid controller ids");
- if(getenv("TOTK_INPUT_LOG")){char b[128];size_t o=0;for(uint64_t i=0;i<n&&o<100;i++)o+=(size_t)snprintf(b+o,sizeof b-o," %#x",ids[i]);b[o]=0;fprintf(stderr,"[totk-input] game supports controller ids:%s\n",b);}pthread_mutex_lock(&inputLock);allowed=false;for(uint64_t i=0;i<n;i++)if(ids[i]==pad_id())allowed=true;pthread_mutex_unlock(&inputLock);}
+ if(getenv("TOTK_INPUT_LOG")){char b[128];size_t o=0;for(uint64_t i=0;i<n&&o<100;i++)o+=(size_t)snprintf(b+o,sizeof b-o," %#x",ids[i]);b[o]=0;fprintf(stderr,"[totk-input] game supports controller ids:%s\n",b);}pthread_mutex_lock(&inputLock);allowed=false;secondAllowed=false;for(uint64_t i=0;i<n;i++){if(ids[i]==pad_id())allowed=true;if(ids[i]==1)secondAllowed=true;}pthread_mutex_unlock(&inputLock);}
 static void supported_styles(uint32_t value){pthread_mutex_lock(&inputLock);styles=value;pthread_mutex_unlock(&inputLock);}
-static uint32_t style(const uint32_t *id){if(!id)runtime_fail("controller id pointer");input_log("style set",*id);pthread_mutex_lock(&inputLock);uint32_t v=enabled&&allowed&&*id==pad_id()?(styles&pad_style()):0;pthread_mutex_unlock(&inputLock);return v;}
+static uint32_t style(const uint32_t *id){if(!id)runtime_fail("controller id pointer");input_log("style set",*id);pthread_mutex_lock(&inputLock);uint32_t v=enabled&&allowed&&*id==pad_id()?(styles&pad_style()):0;
+#ifdef GAME_ACNH
+ if (enabled && secondAllowed && *id == 1 && !runtime_handheld_mode()) { RuntimeGamepadState p; runtime_gamepad_read_player(1, &p); if(p.connected) v=styles&1; }
+#endif
+ pthread_mutex_unlock(&inputLock);return v;}
 static int pad_states(NpadState *out,int max,const uint32_t *id,uint32_t want_style);
 static int full_states(NpadState *out,int max,const uint32_t *id){return pad_states(out,max,id,1);}
 static int handheld_states(NpadState *out,int max,const uint32_t *id){return pad_states(out,max,id,2);}
@@ -120,7 +124,14 @@ static int pad_states(NpadState *out,int max,const uint32_t *id,uint32_t want_st
  if(pad.buttons&~padSeen||abs(pad.lx)>16384||abs(pad.ly)>16384||abs(pad.rx)>16384||abs(pad.ry)>16384)user_input("controller");padSeen=pad.buttons;
  if(abs(pad.lx)>abs(state.lx))state.lx=pad.lx;if(abs(pad.ly)>abs(state.ly))state.ly=pad.ly;
  if(abs(pad.rx)>abs(state.rx))state.rx=pad.rx;if(abs(pad.ry)>abs(state.ry))state.ry=pad.ry;
- }*out=state;pthread_mutex_unlock(&inputLock);
+ }
+#ifdef GAME_ACNH
+ else if(enabled && secondAllowed && *id==1 && want_style==1 && (styles&1) && !runtime_handheld_mode()) {
+  RuntimeGamepadState p; runtime_gamepad_read_player(1,&p);
+  if(p.connected){state.attributes=1;state.buttons=p.buttons;state.lx=p.lx;state.ly=p.ly;state.rx=p.rx;state.ry=p.ry;}
+ }
+#endif
+ *out=state;pthread_mutex_unlock(&inputLock);
 #ifdef GAME_ACNH
  if(rush_stop)fprintf(stderr,"[acnh] 影片已开始，停止快进\n");
 #endif
@@ -230,7 +241,11 @@ static void touch_state_1(TouchScreenState1 *out){if(!out)runtime_fail("touch ou
 typedef struct{int8_t players;uint8_t pad[3];uint32_t selected;} ControllerSupportResult;
 _Static_assert(sizeof(ControllerSupportResult)==8,"controller support result ABI");
 static uint32_t show_controller_support(ControllerSupportResult *out,const void *arg){
- (void)arg;if(out)*out=(ControllerSupportResult){.players=1,.selected=pad_id()};
+ (void)arg; int players=1;
+#ifdef GAME_ACNH
+ if(!runtime_handheld_mode()){RuntimeGamepadState p;runtime_gamepad_read_player(1,&p);if(p.connected)players=2;}
+#endif
+ if(out)*out=(ControllerSupportResult){.players=players,.selected=pad_id()};
  static int once;if(!once++)fprintf(stderr,"[totk] controller support applet: one player on controller %#x\n",pad_id());
  return 0;
 }
