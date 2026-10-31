@@ -3,17 +3,10 @@
 #include <math.h>
 #include "runtime.h"
 
-/* Layout inside the safe area (clear of the iPhone's notch, rounded corners and home indicator), like a Switch
-   controller: ZL/L and R/ZR along the top with − and + between them, and two columns mirroring each other: on the left
-   the d-pad above the left stick, on the right A/B/X/Y above the camera stick. Each stick is drawn at its resting place
-   until a finger takes it; the sticks sit a little toward the middle. L3 / R3 (stick press) are in the bottom corners,
-   under ZL / ZR.
-   A touch that misses every button is a stick, centred where the finger went down: the left stick on the left half,
-   the camera (right stick) on the right half. Bits are the Npad buttons. While a game controller is connected the layer
-   is hidden; a touch shows it and works as usual, and it hides again 3 seconds after the last finger lifts. */
+/* 按键与摇杆布局限制在游戏画面和安全区域的交集内。空白处触摸仍可操作对应侧的摇杆；
+   连接手柄时，最后一次触摸结束后自动隐藏覆盖层。 */
 typedef struct { CGPoint at; uint64_t bit; NSString *label; CGFloat size; } TouchButton;
-enum { kButtonCount = 16 };
-static const CGFloat kButtonSize = 46;
+enum { kButtonCount = 14 };
 static const NSTimeInterval kHideAfter = 3;   // seconds after the last finger lifts, with a controller connected
 
 @implementation TOTKTouchPad {
@@ -64,49 +57,41 @@ static const NSTimeInterval kHideAfter = 3;   // seconds after the last finger l
 }
 - (void)concealIfIdle { if (gamepad && !points.count) [self conceal]; }
 
-- (CGRect)area { return UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets); }
-- (CGFloat)stickRadius { return MIN(70, self.area.size.height * .16); }
-/* Distance between the centre of a button diamond (A/B/X/Y, the d-pad) and each of its buttons. */
+- (CGRect)area {
+    CGRect safe = UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets);
+    CGFloat width = MIN(self.bounds.size.width, self.bounds.size.height * 16.0 / 9.0);
+    CGRect game = CGRectMake(CGRectGetMidX(self.bounds) - width / 2, CGRectGetMinY(self.bounds), width, self.bounds.size.height);
+    return CGRectIntersection(safe, game);
+}
+- (CGFloat)stickRadius { return MIN(62, self.area.size.height * .15); }
 - (CGFloat)diamond { return MIN(52, self.area.size.height * .14); }
 - (CGFloat)hitRadius { return MIN(36, self.diamond * .68); }
-/* How far the two columns sit inside the safe area: 14% of its width. On an iPhone they move halfway from there toward
-   the screen edge, so the gap between the screen edge and the d-pad or A/B/X/Y is half as wide (the user's choice,
-   2026-10-19; about 38 points on an iPhone 14, clear of the notch); the stick rings stay inside the safe area. */
-- (CGFloat)columnInset {
-    CGFloat full = self.area.size.width * .14;
-    if (self.traitCollection.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return full;
-    CGFloat side = MAX(self.safeAreaInsets.left, self.safeAreaInsets.right), edgeGap = side + full - (self.diamond + kButtonSize / 2);
-    return MAX(full - edgeGap / 2, self.stickRadius + 4);
-}
-/* The shoulder buttons move outward the same way on an iPhone: the gap between the screen edge and ZL / ZR is halved,
-   and L / R move with them. */
-- (CGFloat)shoulderShift {
-    if (self.traitCollection.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return 0;
-    CGFloat side = MAX(self.safeAreaInsets.left, self.safeAreaInsets.right);
-    return (side + self.area.size.width * .05 - kButtonSize / 2) / 2;
-}
+- (CGFloat)columnInset { return self.diamond + 33; }
 - (CGPoint)restingStick:(BOOL)right {
-    CGRect a = self.area; CGFloat inset = self.columnInset + self.stickRadius * 1.9;
+    CGRect a = self.area; CGFloat inset = self.columnInset + self.stickRadius * 1.45;
     return CGPointMake(right ? CGRectGetMaxX(a) - inset : CGRectGetMinX(a) + inset, CGRectGetMinY(a) + a.size.height * .80);
 }
 
 - (void)buttons:(TouchButton *)b {
     CGRect a = self.area; CGFloat x = CGRectGetMinX(a), y = CGRectGetMinY(a), w = a.size.width, h = a.size.height, d = self.diamond;
     CGFloat top = y + h * .12, bottom = y + h * .88;
-    CGFloat inset = self.columnInset, shift = self.shoulderShift;
+    CGFloat inset = self.columnInset;
     CGPoint face = CGPointMake(x + w - inset, y + h * .42), pad = CGPointMake(x + inset, y + h * .42);
     TouchButton all[kButtonCount] = {
-        {{face.x + d, face.y}, 1, @"A", kButtonSize}, {{face.x, face.y + d}, 2, @"B", kButtonSize}, {{face.x, face.y - d}, 4, @"X", kButtonSize}, {{face.x - d, face.y}, 8, @"Y", kButtonSize},
-        {{x + w * .05 - shift, top}, 256, @"ZL", kButtonSize}, {{x + w * .16 - shift, top}, 64, @"L", kButtonSize}, {{x + w * .84 + shift, top}, 128, @"R", kButtonSize}, {{x + w * .95 + shift, top}, 512, @"ZR", kButtonSize},
-        {{x + w * .40, top}, 2048, @"−", kButtonSize}, {{x + w * .60, top}, 1024, @"+", kButtonSize},
-        {{pad.x - d, pad.y}, 4096, @"◀", kButtonSize}, {{pad.x, pad.y - d}, 8192, @"▲", kButtonSize}, {{pad.x + d, pad.y}, 16384, @"▶", kButtonSize}, {{pad.x, pad.y + d}, 32768, @"▼", kButtonSize},
-        {{x + w * .05 - shift, bottom}, 16, @"L3", kButtonSize}, {{x + w * .95 + shift, bottom}, 32, @"R3", kButtonSize}};
+        {{face.x + d, face.y}, 1, @"A", 54}, {{face.x, face.y + d}, 2, @"B", 54}, {{face.x, face.y - d}, 4, @"X", 54}, {{face.x - d, face.y}, 8, @"Y", 54},
+        {{x + 32, top}, 256, @"ZL", 52}, {{x + 96, top}, 64, @"L", 52}, {{x + w - 96, top}, 128, @"R", 52}, {{x + w - 32, top}, 512, @"ZR", 52},
+        {{x + w * .39, bottom}, 2048, @"−", 40}, {{x + w * .61, bottom}, 1024, @"+", 40},
+        {{pad.x - d, pad.y}, 4096, @"◀", 40}, {{pad.x, pad.y - d}, 8192, @"▲", 40}, {{pad.x + d, pad.y}, 16384, @"▶", 40}, {{pad.x, pad.y + d}, 32768, @"▼", 40}};
     for (int i = 0; i < kButtonCount; i++) b[i] = all[i];
 }
 
 - (uint64_t)buttonAt:(CGPoint)p {
     TouchButton b[kButtonCount]; [self buttons:b]; CGFloat hit = self.hitRadius; uint64_t bits = 0;
-    for (int i = 0; i < kButtonCount; i++) if (hypot(p.x - b[i].at.x, p.y - b[i].at.y) < MIN(hit, b[i].size * .75)) bits |= b[i].bit;
+    for (int i = 0; i < kButtonCount; i++) {
+        CGFloat radius = MAX(22, MIN(hit, b[i].size * .65));
+        if (i >= 4 && i <= 7) radius = MIN(radius, 30);
+        if (hypot(p.x - b[i].at.x, p.y - b[i].at.y) < radius) bits |= b[i].bit;
+    }
     return bits;
 }
 
@@ -156,31 +141,50 @@ static void stick_axes(CGPoint from, CGPoint to, CGFloat radius, int32_t *x, int
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self touchesEnded:touches withEvent:event]; }
 - (void)safeAreaInsetsDidChange { [super safeAreaInsetsDidChange]; [self setNeedsDisplay]; }
 
+/* 细双环和四枚叶片刻纹为摇杆提供装饰，不改变摇杆输入范围。 */
 static void draw_stick(CGContextRef c, CGPoint o, CGPoint p, CGFloat r) {
-    int32_t x, y; stick_axes(o, p, r, &x, &y); CGContextStrokeEllipseInRect(c, CGRectMake(o.x - r, o.y - r, 2 * r, 2 * r));
+    int32_t x, y; stick_axes(o, p, r, &x, &y);
+    CGContextSaveGState(c);
+    CGContextSetStrokeColorWithColor(c, [UIColor colorWithRed:.88 green:.87 blue:.64 alpha:.55].CGColor);
+    CGContextSetLineWidth(c, 1.2);
+    CGContextStrokeEllipseInRect(c, CGRectMake(o.x-r, o.y-r, 2*r, 2*r));
+    CGContextStrokeEllipseInRect(c, CGRectMake(o.x-r+4, o.y-r+4, 2*r-8, 2*r-8));
+    for (int i = 0; i < 4; i++) {
+        CGContextSaveGState(c); CGContextTranslateCTM(c, o.x, o.y); CGContextRotateCTM(c, i * M_PI_2);
+        CGContextMoveToPoint(c, 0, -r-4); CGContextAddQuadCurveToPoint(c, 7, -r, 0, -r+4);
+        CGContextAddQuadCurveToPoint(c, -7, -r, 0, -r-4); CGContextStrokePath(c); CGContextRestoreGState(c);
+    }
     CGPoint k = CGPointMake(o.x + x / 32767.0 * r, o.y - y / 32767.0 * r);
-    CGRect knob = CGRectMake(k.x - kButtonSize / 2, k.y - kButtonSize / 2, kButtonSize, kButtonSize);
+    CGRect knob = CGRectMake(k.x - 22, k.y - 22, 44, 44);
+    CGContextSetFillColorWithColor(c, [UIColor colorWithRed:.12 green:.19 blue:.14 alpha:.62].CGColor);
     CGContextFillEllipseInRect(c, knob); CGContextStrokeEllipseInRect(c, knob);
+    CGContextStrokeEllipseInRect(c, CGRectInset(knob, 4, 4)); CGContextRestoreGState(c);
 }
 
 - (void)drawRect:(CGRect)rect {
     if (concealed) return;
-    (void)rect; CGContextRef c = UIGraphicsGetCurrentContext(); UIColor *ink = [UIColor colorWithWhite:1 alpha:.32];
-    // One fill for every button and knob, set before each fill: drawing a label leaves the context's fill colour at the
-    // label's, which once made every button after A (the first drawn) brighter than A and the stick knobs.
-    CGColorRef fill = ink.CGColor; CGContextSetStrokeColorWithColor(c, ink.CGColor); CGContextSetFillColorWithColor(c, fill); CGContextSetLineWidth(c, 2);
+    (void)rect; CGContextRef c = UIGraphicsGetCurrentContext();
     CGFloat r = self.stickRadius;
-    // Each stick is drawn where its finger went down, or at its resting place while idle.
     if (!leftOrigins.count) { CGPoint rest = [self restingStick:NO]; draw_stick(c, rest, rest, r); }
     if (!rightOrigins.count) { CGPoint rest = [self restingStick:YES]; draw_stick(c, rest, rest, r); }
     for (UITouch *t in leftOrigins.keyEnumerator) draw_stick(c, [leftOrigins objectForKey:t].CGPointValue, [points objectForKey:t].CGPointValue, r);
     for (UITouch *t in rightOrigins.keyEnumerator) draw_stick(c, [rightOrigins objectForKey:t].CGPointValue, [points objectForKey:t].CGPointValue, r);
-    NSDictionary *attrs = @{NSFontAttributeName: [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold], NSForegroundColorAttributeName: ink};
+    uint64_t pressed = 0;
+    for (UITouch *t in points.keyEnumerator)
+        if (![leftOrigins objectForKey:t] && ![rightOrigins objectForKey:t]) pressed |= [self buttonAt:[points objectForKey:t].CGPointValue];
     TouchButton b[kButtonCount]; [self buttons:b];
     for (int i = 0; i < kButtonCount; i++) {
         CGFloat size = b[i].size; CGRect box = CGRectMake(b[i].at.x - size / 2, b[i].at.y - size / 2, size, size);
-        CGContextSetFillColorWithColor(c, fill); CGContextFillEllipseInRect(c, box); CGContextStrokeEllipseInRect(c, box);
+        BOOL active = (pressed & b[i].bit) != 0;
+        UIColor *fill = active ? [UIColor colorWithRed:.35 green:.50 blue:.30 alpha:.86] : [UIColor colorWithRed:.10 green:.17 blue:.13 alpha:.72];
+        UIColor *edge = [UIColor colorWithRed:.91 green:.87 blue:.65 alpha:active ? .95 : .65];
+        CGContextSetFillColorWithColor(c, fill.CGColor); CGContextFillEllipseInRect(c, box);
+        CGContextSetStrokeColorWithColor(c, edge.CGColor); CGContextSetLineWidth(c, 1.2); CGContextStrokeEllipseInRect(c, box);
+        CGContextSetLineWidth(c, .6); CGContextStrokeEllipseInRect(c, CGRectInset(box, 3, 3));
+        CGFloat fontSize = size >= 50 ? 20 : (size < 40 ? 13 : 15);
+        NSDictionary *attrs = @{NSFontAttributeName: [UIFont systemFontOfSize:fontSize weight:UIFontWeightSemibold], NSForegroundColorAttributeName: [UIColor colorWithRed:1 green:.98 blue:.88 alpha:.95]};
         CGSize z = [b[i].label sizeWithAttributes:attrs]; [b[i].label drawAtPoint:CGPointMake(b[i].at.x - z.width / 2, b[i].at.y - z.height / 2) withAttributes:attrs];
     }
 }
+
 @end
